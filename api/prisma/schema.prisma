@@ -1,0 +1,109 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DocumentStatus {
+  PENDING
+  INDEXED
+  FAILED
+}
+
+enum PropertyType {
+  apartment
+  villa
+  townhouse
+  duplex
+  chalet
+  studio
+  office
+}
+
+enum Listing {
+  SALE
+  RENT
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model Document {
+  id          String         @id @default(cuid())
+  filename    String
+  contentHash String         @unique
+  rawMarkdown String
+  status      DocumentStatus @default(PENDING)
+  error       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  property Property?
+  chunks   Chunk[]
+}
+
+model Property {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  documentId   String       @unique
+  document     Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  title        String
+  type         PropertyType
+  listing      Listing
+  price        Decimal      @db.Decimal(14, 2)
+  currency     String       @default("EGP")
+  bedrooms     Int
+  bathrooms    Int
+  areaM2       Int
+  city         String
+  district     String?
+  compound     String?
+  deliveryDate DateTime?
+  finishing    String?
+  paymentPlan  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  chunks   Chunk[]
+  bookings Booking[]
+
+  @@index([city])
+  @@index([price])
+  @@index([bedrooms])
+}
+
+model Chunk {
+  id         String                      @id @default(cuid())
+  documentId String
+  document   Document                    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  index      Int
+  content    String
+  embedding  Unsupported("vector(1024)")
+
+  @@index([documentId])
+  @@index([propertyId])
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  propertyId    String
+  property      Property      @relation(fields: [propertyId], references: [id])
+  name          String
+  phone         String
+  preferredDate DateTime
+  status        BookingStatus @default(CONFIRMED)
+  threadId      String?
+  createdAt     DateTime      @default(now())
+
+  @@index([propertyId])
+}
