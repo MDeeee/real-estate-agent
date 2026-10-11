@@ -4,6 +4,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
+  API_UNREACHABLE_MESSAGE,
+  apiBaseUrl,
+  readErrorMessage,
+} from "./api-base";
+import {
   bookingItemSchema,
   documentItemSchema,
   ingestResultSchema,
@@ -18,8 +23,6 @@ export const ADMIN_COOKIE = "admin_token";
 export const ADMIN_HOME = "/admin";
 export const LOGIN_PATH = "/admin/login";
 
-const DEFAULT_API_URL = "http://localhost:3001/api";
-
 export class AdminApiError extends Error {
   constructor(
     readonly status: number,
@@ -28,12 +31,6 @@ export class AdminApiError extends Error {
     super(message);
     this.name = "AdminApiError";
   }
-}
-
-function apiBaseUrl(): string {
-  const url =
-    process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
-  return url.replace(/\/+$/, "");
 }
 
 async function request(
@@ -50,10 +47,7 @@ async function request(
       cache: "no-store",
     });
   } catch {
-    throw new AdminApiError(
-      503,
-      "The API is unreachable. Check that it is running and try again.",
-    );
+    throw new AdminApiError(503, API_UNREACHABLE_MESSAGE);
   }
 }
 
@@ -70,21 +64,7 @@ async function authorisedRequest(
 }
 
 async function failure(response: Response): Promise<AdminApiError> {
-  let message = `The API responded with status ${response.status}.`;
-  try {
-    const body: unknown = await response.json();
-    const parsed = z
-      .object({ message: z.union([z.string(), z.array(z.string())]) })
-      .safeParse(body);
-    if (parsed.success) {
-      message = Array.isArray(parsed.data.message)
-        ? parsed.data.message.join("\n")
-        : parsed.data.message;
-    }
-  } catch {
-    // Non-JSON error body; keep the generic message.
-  }
-  return new AdminApiError(response.status, message);
+  return new AdminApiError(response.status, await readErrorMessage(response));
 }
 
 async function readJson<TSchema extends z.ZodType>(

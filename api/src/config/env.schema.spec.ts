@@ -14,6 +14,8 @@ describe('validateEnv', () => {
     expect(env.OLLAMA_BASE_URL).toBe('http://localhost:11434');
     expect(env.EMBEDDING_MODEL).toBe('bge-m3');
     expect(env.EMBEDDING_DIM).toBe(1024);
+    expect(env.THROTTLE_TTL_SECONDS).toBe(60);
+    expect(env.THROTTLE_LIMIT).toBe(120);
   });
 
   it('treats empty optional variables as unset', () => {

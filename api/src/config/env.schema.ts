@@ -26,6 +26,8 @@ export const envSchema = z.object({
         .filter(Boolean),
     ),
   ADMIN_TOKEN: z.string().min(16, 'must be at least 16 characters'),
+  THROTTLE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+  THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
 
   LLM_PROVIDER: z.enum(['claude', 'openai-compatible']).default('claude'),
   ANTHROPIC_API_KEY: optionalString,

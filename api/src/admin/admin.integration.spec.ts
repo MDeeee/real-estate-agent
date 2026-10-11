@@ -1,7 +1,4 @@
 import type { INestApplication } from '@nestjs/common';
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { Test } from '@nestjs/testing';
 import {
   afterAll,
   beforeAll,
@@ -11,18 +8,18 @@ import {
   inject,
   it,
 } from 'vitest';
-import { validateEnv } from '../config/env.schema.js';
-import { EMBEDDINGS_PORT } from '../ingestion/embeddings.port.js';
-import { IngestionModule } from '../ingestion/ingestion.module.js';
 import { MAX_FILE_BYTES } from '../ingestion/ingestion.types.js';
-import { PrismaModule } from '../prisma/prisma.module.js';
-import { PrismaService } from '../prisma/prisma.service.js';
+import type { PrismaService } from '../prisma/prisma.service.js';
 import { FakeEmbeddings } from '../testing/fake-embeddings.js';
+import {
+  TEST_ADMIN_TOKEN,
+  createIntegrationApp,
+  resetDatabase,
+} from '../testing/integration-app.js';
 import { listingMarkdown, longBody } from '../testing/listing-fixtures.js';
-import { AdminModule } from './admin.module.js';
 
 const databaseUrl = inject('integrationDatabaseUrl');
-const TOKEN = 'integration-test-admin-token';
+const TOKEN = TEST_ADMIN_TOKEN;
 
 interface UploadResult {
   filename: string;
@@ -38,24 +35,6 @@ interface UploadFile {
   content: string;
 }
 
-@Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      ignoreEnvFile: true,
-      validate: () =>
-        validateEnv({
-          DATABASE_URL: databaseUrl ?? '',
-          ADMIN_TOKEN: TOKEN,
-        }),
-    }),
-    PrismaModule,
-    IngestionModule,
-    AdminModule,
-  ],
-})
-class TestAppModule {}
-
 describe.skipIf(!databaseUrl)('admin API (integration)', () => {
   const embeddings = new FakeEmbeddings();
   let app: INestApplication;
@@ -63,17 +42,13 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [TestAppModule],
-    })
-      .overrideProvider(EMBEDDINGS_PORT)
-      .useValue(embeddings)
-      .compile();
-    app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api');
-    await app.listen(0, '127.0.0.1');
-    baseUrl = `${await app.getUrl()}/api/admin`;
-    prisma = app.get(PrismaService);
+    const created = await createIntegrationApp(
+      databaseUrl as string,
+      embeddings,
+    );
+    app = created.app;
+    prisma = created.prisma;
+    baseUrl = `${created.apiUrl}/admin`;
   });
 
   afterAll(async () => {
@@ -83,7 +58,7 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
   beforeEach(async () => {
     embeddings.calls.length = 0;
     embeddings.failure = undefined;
-    await prisma.$executeRaw`TRUNCATE TABLE "Booking", "Chunk", "Property", "Document" CASCADE`;
+    await resetDatabase(prisma);
   });
 
   function request(path: string, init: RequestInit = {}, token = TOKEN) {

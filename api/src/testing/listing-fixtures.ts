@@ -3,6 +3,7 @@ export interface ListingOverrides {
   title?: string;
   body?: string;
   extraFrontmatter?: string;
+  fields?: Record<string, string | number | null>;
 }
 
 const DEFAULT_BODY = [
@@ -20,20 +21,27 @@ export function listingMarkdown({
   title = 'Test flat in Zamalek',
   body = DEFAULT_BODY,
   extraFrontmatter = '',
+  fields = {},
 }: ListingOverrides = {}): string {
+  const frontmatter: Record<string, string | number | null> = {
+    slug,
+    title,
+    type: 'apartment',
+    listing: 'RENT',
+    price: 45000,
+    currency: 'EGP',
+    bedrooms: 2,
+    bathrooms: 1,
+    areaM2: 110,
+    city: 'Zamalek',
+    district: '26th of July Street',
+    ...fields,
+  };
   const lines = [
     '---',
-    `slug: ${slug}`,
-    `title: ${title}`,
-    'type: apartment',
-    'listing: RENT',
-    'price: 45000',
-    'currency: EGP',
-    'bedrooms: 2',
-    'bathrooms: 1',
-    'areaM2: 110',
-    'city: Zamalek',
-    'district: 26th of July Street',
+    ...Object.entries(frontmatter)
+      .filter(([, value]) => value !== null)
+      .map(([key, value]) => `${key}: ${value}`),
   ];
   if (extraFrontmatter) lines.push(extraFrontmatter);
   lines.push('---', '', body, '');
