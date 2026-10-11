@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
+import { ClientIpThrottlerGuard } from './common/client-ip-throttler.guard.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import type { Env } from './config/env.schema.js';
 import { HealthModule } from './health/health.module.js';
@@ -30,6 +31,6 @@ import { PropertiesModule } from './properties/properties.module.js';
     AdminModule,
     PropertiesModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: ClientIpThrottlerGuard }],
 })
 export class AppModule {}

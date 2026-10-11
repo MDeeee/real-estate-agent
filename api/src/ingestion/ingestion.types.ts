@@ -1,5 +1,5 @@
 export const MAX_FILE_BYTES = 200 * 1024;
-export const MAX_FILES_PER_REQUEST = 50;
+export const MAX_FILES_PER_REQUEST = 10;
 
 export type IngestOutcome = 'created' | 'updated' | 'unchanged' | 'failed';
 

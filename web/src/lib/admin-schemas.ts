@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const MAX_UPLOAD_FILES = 50;
+/** Most files one selection may hold; they are sent in batches. */
+export const MAX_UPLOAD_FILES = 100;
+/** Files per server-action call; the API accepts up to 10 per request. */
+export const UPLOAD_BATCH_SIZE = 5;
 export const MAX_UPLOAD_FILE_BYTES = 200 * 1024;
 
 export const ingestResultSchema = z.object({

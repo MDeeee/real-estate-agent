@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { buttonClass } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
+import { lastPageIfBeyond, pageCount } from "@/lib/pagination";
 import type { PropertyPage } from "@/lib/property-schemas";
 import { hasActiveFilters, hrefFor, type SearchQuery } from "@/lib/property-search";
 import { PropertyCard } from "./property-card";
@@ -35,7 +37,12 @@ export function Results({
     );
   }
 
-  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  // A bookmarked or hand-edited page past the end would otherwise show an
+  // empty list and an inverted "showing 25–24".
+  const last = lastPageIfBeyond(data);
+  if (last !== null) redirect(hrefFor(query, { page: last }));
+
+  const pages = pageCount(data.total, data.pageSize);
   const from = (data.page - 1) * data.pageSize + 1;
   const to = Math.min(data.total, from + data.items.length - 1);
 

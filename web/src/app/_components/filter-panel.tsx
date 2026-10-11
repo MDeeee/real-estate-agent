@@ -4,8 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Button, buttonClass } from "@/components/ui/button";
-import { formatNumber } from "@/lib/format";
-import type { Listing, PropertyFacets } from "@/lib/property-schemas";
+import { capitalise, formatNumber } from "@/lib/format";
+import type {
+  FacetValue,
+  Listing,
+  PropertyFacets,
+} from "@/lib/property-schemas";
 import { SORT_OPTIONS, type SearchQuery } from "@/lib/property-search";
 
 const inputClass =
@@ -36,6 +40,25 @@ function Field({
   );
 }
 
+/**
+ * Which option a URL value maps to. The API matches case-insensitively, so
+ * `?city=new cairo` selects "New Cairo". A value that is not offered at all
+ * (`?city=Nowhere`) becomes an extra option, so the form mirrors the URL
+ * instead of silently showing "All".
+ */
+function resolveSelection(
+  options: FacetValue[],
+  current: string | undefined,
+): { selected: string; unlisted: string | null } {
+  if (!current) return { selected: "", unlisted: null };
+  const match = options.find(
+    (option) => option.value.toLowerCase() === current.toLowerCase(),
+  );
+  return match
+    ? { selected: match.value, unlisted: null }
+    : { selected: current, unlisted: current };
+}
+
 export function FilterPanel({
   query,
   facets,
@@ -46,6 +69,10 @@ export function FilterPanel({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [listing, setListing] = useState<"" | Listing>(query.listing ?? "");
+  const initialCity = resolveSelection(facets.cities, query.city);
+  const initialCompound = resolveSelection(facets.compounds, query.compound);
+  const [city, setCity] = useState(initialCity.selected);
+  const [compound, setCompound] = useState(initialCompound.selected);
 
   const range = listing ? facets.price[listing] : null;
   const priceSuffix = listing === "RENT" ? "EGP/month" : "EGP";
@@ -98,10 +125,20 @@ export function FilterPanel({
           <select
             id="city"
             name="city"
-            defaultValue={query.city ?? ""}
+            value={city}
+            onChange={(event) => {
+              setCity(event.target.value);
+              // The compounds on offer belong to the previously applied city.
+              setCompound("");
+            }}
             className={inputClass}
           >
             <option value="">All cities</option>
+            {initialCity.unlisted ? (
+              <option value={initialCity.unlisted}>
+                {initialCity.unlisted} (0)
+              </option>
+            ) : null}
             {facets.cities.map((city) => (
               <option key={city.value} value={city.value}>
                 {city.value} ({city.count})
@@ -113,10 +150,16 @@ export function FilterPanel({
           <select
             id="compound"
             name="compound"
-            defaultValue={query.compound ?? ""}
+            value={compound}
+            onChange={(event) => setCompound(event.target.value)}
             className={inputClass}
           >
             <option value="">All compounds</option>
+            {initialCompound.unlisted ? (
+              <option value={initialCompound.unlisted}>
+                {initialCompound.unlisted} (0)
+              </option>
+            ) : null}
             {facets.compounds.map((compound) => (
               <option key={compound.value} value={compound.value}>
                 {compound.value} ({compound.count})
@@ -134,7 +177,7 @@ export function FilterPanel({
             <option value="">All types</option>
             {facets.types.map((type) => (
               <option key={type.value} value={type.value}>
-                {type.value} ({type.count})
+                {capitalise(type.value)} ({type.count})
               </option>
             ))}
           </select>

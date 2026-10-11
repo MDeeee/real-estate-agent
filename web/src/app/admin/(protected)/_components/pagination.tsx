@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { buttonClass } from "@/components/ui/button";
+import { pageCount } from "@/lib/pagination";
 
 export function Pagination({
   tab,
@@ -12,7 +13,7 @@ export function Pagination({
   pageSize: number;
   total: number;
 }) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const pages = pageCount(total, pageSize);
   const href = (target: number) => `/admin?tab=${tab}&page=${target}`;
 
   return (

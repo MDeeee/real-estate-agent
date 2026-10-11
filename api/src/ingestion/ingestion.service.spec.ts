@@ -38,6 +38,14 @@ class InMemoryStore {
     return undefined;
   }
 
+  private remove(documentId: string): void {
+    this.documents.delete(documentId);
+    this.chunks.delete(documentId);
+    for (const [slug, property] of this.properties) {
+      if (property.documentId === documentId) this.properties.delete(slug);
+    }
+  }
+
   readonly client = {
     document: {
       findUnique: ({
@@ -86,16 +94,49 @@ class InMemoryStore {
         Object.assign(doc, data);
         return Promise.resolve({ id: doc.id });
       },
+      findMany: ({
+        where,
+      }: {
+        where: {
+          status: DocumentStatus;
+          id: { not: string };
+          OR: [{ filename: string }, { rawMarkdown: { contains: string } }];
+        };
+      }) => {
+        const [byName, byContent] = where.OR;
+        return Promise.resolve(
+          [...this.documents.values()].filter(
+            (doc) =>
+              doc.status === where.status &&
+              !this.slugOf(doc.id) &&
+              doc.id !== where.id.not &&
+              (doc.filename === byName.filename ||
+                doc.rawMarkdown.includes(byContent.rawMarkdown.contains)),
+          ),
+        );
+      },
       delete: ({ where }: { where: { id: string } }) => {
-        this.documents.delete(where.id);
+        this.remove(where.id);
         return Promise.resolve({});
+      },
+      deleteMany: ({ where }: { where: { id: { in: string[] } } }) => {
+        for (const id of where.id.in) this.remove(id);
+        return Promise.resolve({ count: where.id.in.length });
       },
     },
     property: {
       findUnique: ({ where }: { where: { slug: string } }) => {
         const property = this.properties.get(where.slug);
+        const document = property
+          ? this.documents.get(property.documentId)
+          : undefined;
         return Promise.resolve(
-          property ? { documentId: property.documentId } : null,
+          property && document
+            ? {
+                documentId: property.documentId,
+                document: { id: document.id, status: document.status },
+              }
+            : null,
         );
       },
       upsert: ({
@@ -113,7 +154,29 @@ class InMemoryStore {
         return Promise.resolve({ id: record.id });
       },
     },
-    $transaction: (fn: (tx: unknown) => Promise<unknown>) => fn(this.client),
+    // Mirrors a database transaction: a failure rolls every write back.
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const snapshot = {
+        documents: new Map(
+          [...this.documents].map(([id, doc]) => [id, { ...doc }]),
+        ),
+        properties: new Map(
+          [...this.properties].map(([slug, property]) => [
+            slug,
+            { ...property },
+          ]),
+        ),
+        chunks: new Map(this.chunks),
+      };
+      try {
+        return await fn(this.client);
+      } catch (error) {
+        this.documents = snapshot.documents;
+        this.properties = snapshot.properties;
+        this.chunks = snapshot.chunks;
+        throw error;
+      }
+    },
   };
 
   readonly chunkRepository = {
@@ -361,5 +424,197 @@ describe('IngestionService', () => {
     expect(oversized.error).toContain('200 KB');
     expect(notUtf8.error).toContain('UTF-8');
     expect(store.documents.size).toBe(0);
+  });
+
+  describe('a failed re-index of a live listing', () => {
+    it('keeps the indexed document, property and chunks untouched when the edit cannot be embedded', async () => {
+      const original = listingMarkdown();
+      const first = await service.ingestUpload(file('flat.md', original));
+      const chunksBefore = store.chunks.get(first.documentId as string);
+
+      embeddings.failure = new Error('connect ECONNREFUSED 127.0.0.1:11434');
+      const edited = await service.ingestUpload(
+        file(
+          'flat.md',
+          listingMarkdown({ title: 'Renovated flat', body: longBody(4) }),
+        ),
+      );
+
+      expect(edited).toMatchObject({
+        outcome: 'failed',
+        propertySlug: 'zamalek-test-flat',
+        error:
+          'Embedding service unavailable: connect ECONNREFUSED 127.0.0.1:11434',
+      });
+      expect(store.documents.size).toBe(1);
+      expect(store.documents.get(first.documentId as string)).toMatchObject({
+        status: DocumentStatus.INDEXED,
+        error: null,
+        rawMarkdown: original,
+      });
+      expect(store.properties.size).toBe(1);
+      expect(store.chunks.get(first.documentId as string)).toBe(chunksBefore);
+    });
+
+    it('never marks the live document PENDING while embedding is in flight', async () => {
+      const first = await service.ingestUpload(
+        file('flat.md', listingMarkdown()),
+      );
+      const statuses: DocumentStatus[] = [];
+      const embed = embeddings.embedDocuments.bind(embeddings);
+      embeddings.embedDocuments = (texts) => {
+        statuses.push(
+          store.documents.get(first.documentId as string)
+            ?.status as DocumentStatus,
+        );
+        return embed(texts);
+      };
+
+      await service.ingestUpload(
+        file('flat.md', listingMarkdown({ body: longBody(3) })),
+      );
+
+      expect(statuses).toEqual([DocumentStatus.INDEXED]);
+    });
+
+    it('keeps the listing indexed when a forced re-index cannot embed', async () => {
+      const first = await service.ingestUpload(
+        file('flat.md', listingMarkdown()),
+      );
+      embeddings.failure = new Error('down');
+
+      const result = await service.reindex(first.documentId as string);
+
+      expect(result.outcome).toBe('failed');
+      expect(store.documents.get(first.documentId as string)?.status).toBe(
+        DocumentStatus.INDEXED,
+      );
+      expect(store.chunks.get(first.documentId as string)).toHaveLength(
+        first.chunks as number,
+      );
+    });
+
+    it('rolls back to the previous version when the single write fails', async () => {
+      const original = listingMarkdown();
+      const first = await service.ingestUpload(file('flat.md', original));
+      store.failChunkWrites = true;
+      vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const edited = await service.ingestUpload(
+        file('flat.md', listingMarkdown({ title: 'Renovated flat' })),
+      );
+
+      expect(edited.outcome).toBe('failed');
+      expect(edited.error).toContain('disk full');
+      expect(store.documents.size).toBe(1);
+      expect(store.documents.get(first.documentId as string)).toMatchObject({
+        status: DocumentStatus.INDEXED,
+        rawMarkdown: original,
+      });
+    });
+  });
+
+  describe('stale failed uploads', () => {
+    async function failedUpload(name: string, content: string) {
+      embeddings.failure = new Error('down');
+      const result = await service.ingestUpload(file(name, content));
+      embeddings.failure = undefined;
+      return result;
+    }
+
+    it('are deleted when the same filename is later indexed', async () => {
+      const failed = await failedUpload('flat.md', listingMarkdown());
+
+      const fixed = await service.ingestUpload(
+        file('flat.md', listingMarkdown({ title: 'Edited title' })),
+      );
+
+      expect(fixed.outcome).toBe('created');
+      expect(fixed.documentId).not.toBe(failed.documentId);
+      expect([...store.documents.keys()]).toEqual([fixed.documentId]);
+    });
+
+    it('are deleted when their content claims the same slug under another filename', async () => {
+      const failed = await failedUpload('draft.md', listingMarkdown());
+
+      const fixed = await service.ingestUpload(
+        file('final.md', listingMarkdown({ title: 'Edited title' })),
+      );
+
+      expect(store.documents.has(failed.documentId as string)).toBe(false);
+      expect(store.documents.size).toBe(1);
+      expect(fixed.outcome).toBe('created');
+    });
+
+    it('of other listings are left alone', async () => {
+      const other = await failedUpload(
+        'other.md',
+        listingMarkdown({ slug: 'other-flat' }),
+      );
+
+      await service.ingestUpload(file('flat.md', listingMarkdown()));
+
+      expect(store.documents.has(other.documentId as string)).toBe(true);
+      expect(store.documents.size).toBe(2);
+    });
+
+    it('cannot be re-indexed over the newer listing that replaced them', async () => {
+      const failed = await failedUpload('flat.md', listingMarkdown());
+      const newer = await service.ingestUpload(
+        file('flat-v2.md', listingMarkdown({ title: 'Newer title' })),
+      );
+      // Recreate the legacy state in which the stale failure survived.
+      store.documents.set(failed.documentId as string, {
+        id: failed.documentId as string,
+        filename: 'flat.md',
+        rawMarkdown: listingMarkdown(),
+        contentHash: 'stale-hash',
+        status: DocumentStatus.FAILED,
+        error: 'Embedding service unavailable: down',
+      });
+      const callsBefore = embeddings.calls.length;
+
+      const result = await service.reindex(failed.documentId as string);
+
+      expect(result).toMatchObject({
+        outcome: 'failed',
+        error:
+          "This upload is outdated: listing 'zamalek-test-flat' is now owned by a newer document.",
+      });
+      expect(embeddings.calls).toHaveLength(callsBefore);
+      expect(store.properties.get('zamalek-test-flat')?.documentId).toBe(
+        newer.documentId,
+      );
+      expect(store.documents.get(failed.documentId as string)?.status).toBe(
+        DocumentStatus.FAILED,
+      );
+    });
+  });
+
+  it('reports the same YAML error every time the same broken content is uploaded', async () => {
+    const broken = '---\nslug: [unclosed\ntitle: "x\n---\n\nbody\n';
+
+    const first = await service.ingestUpload(file('yaml-a.md', broken));
+    const second = await service.ingestUpload(file('yaml-b.md', broken));
+
+    expect(first.error).toMatch(/^Frontmatter is not valid YAML: /);
+    expect(second.error).toBe(first.error);
+  });
+
+  it('lists each frontmatter problem on its own line as "<field>: <message>"', async () => {
+    const invalid = listingMarkdown({
+      fields: { city: null, price: 0, bedrooms: 'many', type: 'castle' },
+    });
+
+    const result = await service.ingestUpload(file('bad.md', invalid));
+
+    const lines = (result.error as string).split('\n');
+    expect(lines).toContain('city: required');
+    expect(lines).toContain('price: must be greater than 0');
+    expect(lines).toContain('bedrooms: must be a number');
+    expect(lines.some((line) => line.startsWith('type: must be one of'))).toBe(
+      true,
+    );
+    expect(result.error).not.toContain('→');
   });
 });

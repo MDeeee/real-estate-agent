@@ -48,6 +48,8 @@ export const propertyPageSchema = z.object({
 export type PropertyPage = z.infer<typeof propertyPageSchema>;
 
 const facetValueSchema = z.object({ value: z.string(), count: z.number() });
+
+export type FacetValue = z.infer<typeof facetValueSchema>;
 const priceRangeSchema = z.object({ min: z.number(), max: z.number() });
 
 export const propertyFacetsSchema = z.object({

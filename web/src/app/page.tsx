@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
 import { buttonClass } from "@/components/ui/button";
+import { describeFilterIssues } from "@/lib/filter-errors";
 import {
   PublicApiError,
   fetchFacets,
@@ -14,6 +16,11 @@ import {
 } from "@/lib/property-search";
 import { AskAiPanel } from "./_components/ask-ai-panel";
 import { FilterPanel } from "./_components/filter-panel";
+import {
+  ASIDE_CLASS,
+  HOME_GRID_CLASS,
+  RESULTS_CLASS,
+} from "./_components/home-layout";
 import { Results } from "./_components/results";
 import { SearchSkeleton } from "./_components/search-skeleton";
 import { SiteHeader } from "./_components/site-header";
@@ -22,22 +29,20 @@ export default function Home({ searchParams }: PageProps<"/">) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0 space-y-6">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Find a property in Egypt
-            </h1>
-            <p className="mt-2 max-w-2xl text-muted">
-              Filter published listings by location, type, price and size. Every
-              result comes from the same data the AI assistant will use.
-            </p>
-          </div>
-          <Suspense fallback={<SearchSkeleton />}>
-            <Search searchParams={searchParams} />
-          </Suspense>
+      <main className={HOME_GRID_CLASS}>
+        <div className="min-w-0">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Find a property in Egypt
+          </h1>
+          <p className="mt-2 max-w-2xl text-muted">
+            Filter published listings by location, type, price and size. Every
+            result comes from the same data the AI assistant will use.
+          </p>
         </div>
-        <aside className="order-first lg:order-last">
+        <Suspense fallback={<SearchSkeleton />}>
+          <Search searchParams={searchParams} />
+        </Suspense>
+        <aside className={ASIDE_CLASS}>
           <AskAiPanel />
         </aside>
       </main>
@@ -47,14 +52,15 @@ export default function Home({ searchParams }: PageProps<"/">) {
 
 type ResultsOutcome =
   | { kind: "ok"; data: PropertyPage }
-  | { kind: "invalid"; message: string };
+  | { kind: "invalid"; problems: string[] };
 
 async function loadResults(query: SearchQuery): Promise<ResultsOutcome> {
   try {
     return { kind: "ok", data: await fetchProperties(query) };
   } catch (error) {
+    unstable_rethrow(error);
     if (error instanceof PublicApiError && error.status === 400) {
-      return { kind: "invalid", message: error.message };
+      return { kind: "invalid", problems: describeFilterIssues(error.issues) };
     }
     throw error;
   }
@@ -67,7 +73,7 @@ async function Search({
 }) {
   const query = parseSearchParams(await searchParams);
   const [facets, outcome] = await Promise.all([
-    fetchFacets(),
+    fetchFacets(query.city),
     loadResults(query),
   ]);
 
@@ -78,20 +84,26 @@ async function Search({
         query={query}
         facets={facets}
       />
-      {outcome.kind === "ok" ? (
-        <Results query={query} data={outcome.data} />
-      ) : (
-        <div
-          role="alert"
-          className="rounded-xl border border-border bg-danger-soft p-5 text-sm text-danger"
-        >
-          <p className="font-medium">These filters cannot be combined.</p>
-          <p className="mt-1 whitespace-pre-line">{outcome.message}</p>
-          <Link href="/" className={`${buttonClass("secondary")} mt-4`}>
-            Reset filters
-          </Link>
-        </div>
-      )}
+      <div className={RESULTS_CLASS}>
+        {outcome.kind === "ok" ? (
+          <Results query={query} data={outcome.data} />
+        ) : (
+          <div
+            role="alert"
+            className="rounded-xl border border-border bg-danger-soft p-5 text-sm text-danger"
+          >
+            <p className="font-medium">These filters cannot be combined.</p>
+            <ul className="mt-1 space-y-1">
+              {outcome.problems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+            <Link href="/" className={`${buttonClass("secondary")} mt-4`}>
+              Reset filters
+            </Link>
+          </div>
+        )}
+      </div>
     </>
   );
 }

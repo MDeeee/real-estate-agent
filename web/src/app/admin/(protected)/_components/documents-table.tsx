@@ -15,7 +15,7 @@ export function DocumentsTable({ data }: { data: Page<DocumentItem> }) {
 
   return (
     <>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[56rem] text-left text-sm">
           <caption className="sr-only">Uploaded documents</caption>
           <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">

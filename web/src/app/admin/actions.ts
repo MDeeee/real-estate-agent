@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 import {
   ADMIN_COOKIE,
@@ -14,14 +14,13 @@ import {
   uploadFiles,
   verifyToken,
 } from "@/lib/admin-api";
-import { MAX_UPLOAD_FILES, type IngestResult } from "@/lib/admin-schemas";
+import { type IngestResult, UPLOAD_BATCH_SIZE } from "@/lib/admin-schemas";
 
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
 export type LoginState = { error?: string };
 
-export type UploadState =
-  | { status: "idle" }
+export type UploadBatchState =
   | { status: "error"; message: string }
   | { status: "done"; results: IngestResult[] };
 
@@ -70,20 +69,26 @@ export async function logout(): Promise<void> {
   redirect(LOGIN_PATH);
 }
 
-export async function uploadDocuments(
-  _previous: UploadState,
+/**
+ * Uploads one batch of files. The client calls this once per batch (server
+ * actions cannot stream progress) and aggregates the results; the admin token
+ * stays in the httpOnly cookie on the server. The client already dropped files
+ * that cannot be valid, so nothing is filtered out here: whatever arrives is
+ * sent and reported.
+ */
+export async function uploadDocumentBatch(
   formData: FormData,
-): Promise<UploadState> {
+): Promise<UploadBatchState> {
   const files = formData
     .getAll("files")
-    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+    .filter((entry): entry is File => entry instanceof File);
   if (files.length === 0) {
     return { status: "error", message: "Choose at least one .md file." };
   }
-  if (files.length > MAX_UPLOAD_FILES) {
+  if (files.length > UPLOAD_BATCH_SIZE) {
     return {
       status: "error",
-      message: `Upload at most ${MAX_UPLOAD_FILES} files at a time.`,
+      message: `Upload at most ${UPLOAD_BATCH_SIZE} files per batch.`,
     };
   }
 
@@ -92,6 +97,7 @@ export async function uploadDocuments(
     revalidatePath(ADMIN_HOME);
     return { status: "done", results };
   } catch (error) {
+    unstable_rethrow(error);
     return { status: "error", message: describe(error) };
   }
 }
@@ -107,6 +113,7 @@ export async function reindexDocument(id: string): Promise<ActionResult> {
       ? { ok: false, message: result.error ?? "Re-indexing failed." }
       : { ok: true };
   } catch (error) {
+    unstable_rethrow(error);
     return { ok: false, message: describe(error) };
   }
 }
@@ -120,6 +127,7 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
     revalidatePath(ADMIN_HOME);
     return { ok: true };
   } catch (error) {
+    unstable_rethrow(error);
     return { ok: false, message: describe(error) };
   }
 }

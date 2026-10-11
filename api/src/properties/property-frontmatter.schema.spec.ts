@@ -31,6 +31,36 @@ describe('propertyFrontmatterSchema', () => {
     expect(parsed.compound).toBe('Mountain View iCity');
   });
 
+  it('accepts a YAML date (a Date object) as the delivery date', () => {
+    const parsed = propertyFrontmatterSchema.parse({
+      ...valid,
+      deliveryDate: new Date('2027-06-30T00:00:00.000Z'),
+    });
+    expect(parsed.deliveryDate).toEqual(new Date('2027-06-30T00:00:00.000Z'));
+  });
+
+  it.each([
+    ['a bare year (YAML number)', 2027],
+    ['a timestamp number', 1_800_000_000],
+    ['a year-month string', '2027-06'],
+    ['free text', 'Q3 2027'],
+    ['a US-style date', '06/30/2027'],
+    ['an impossible calendar date', '2027-02-30'],
+    ['a boolean', true],
+    ['an invalid Date', new Date('nope')],
+  ])('rejects %s as the delivery date', (_label, deliveryDate) => {
+    const result = propertyFrontmatterSchema.safeParse({
+      ...valid,
+      deliveryDate,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.message)).toEqual([
+        'deliveryDate must be a date like 2027-06-30',
+      ]);
+    }
+  });
+
   it('rejects non-positive prices, fractional bedrooms and unknown types with precise paths', () => {
     const result = propertyFrontmatterSchema.safeParse({
       ...valid,

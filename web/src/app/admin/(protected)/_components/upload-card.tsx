@@ -1,24 +1,36 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
-import { uploadDocuments, type UploadState } from "@/app/admin/actions";
+import { useRef, useState, type FormEvent } from "react";
+import { uploadDocumentBatch, type UploadBatchState } from "@/app/admin/actions";
 import { Button } from "@/components/ui/button";
 import {
   MAX_UPLOAD_FILES,
   MAX_UPLOAD_FILE_BYTES,
+  UPLOAD_BATCH_SIZE,
   type IngestResult,
 } from "@/lib/admin-schemas";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, pluralize } from "@/lib/format";
 import { OutcomeBadge } from "./status-badge";
 
-const idle: UploadState = { status: "idle" };
+type Progress = { from: number; to: number; total: number };
 
+const INTERRUPTED_MESSAGE =
+  "The upload was interrupted. Check your connection and try again.";
+
+/** Why a file will not be sent, or null when it is fine to upload. */
 function problemWith(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".md")) return "Not a .md file";
+  if (!file.name.toLowerCase().endsWith(".md")) {
+    return "only .md files are accepted";
+  }
+  if (file.size === 0) return "empty file";
   if (file.size > MAX_UPLOAD_FILE_BYTES) {
-    return `Larger than ${MAX_UPLOAD_FILE_BYTES / 1024} KB`;
+    return `larger than ${MAX_UPLOAD_FILE_BYTES / 1024} KB`;
   }
   return null;
+}
+
+function failedRow(file: File, error: string): IngestResult {
+  return { filename: file.name, outcome: "failed", error };
 }
 
 function summarise(results: IngestResult[]): string {
@@ -29,30 +41,81 @@ function summarise(results: IngestResult[]): string {
   return [...counts].map(([outcome, count]) => `${count} ${outcome}`).join(", ");
 }
 
+const fileKey = (file: File) =>
+  `${file.name}:${file.size}:${file.lastModified}`;
+
 export function UploadCard() {
-  const [state, formAction, pending] = useActionState(uploadDocuments, idle);
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [results, setResults] = useState<IngestResult[] | null>(null);
+  const [finished, setFinished] = useState(false);
+  const [abortMessage, setAbortMessage] = useState<string | null>(null);
 
-  function select(files: File[]) {
-    const input = inputRef.current;
-    if (!input) return;
-    const transfer = new DataTransfer();
-    for (const file of files) transfer.items.add(file);
-    input.files = transfer.files;
-    setSelected(files);
-  }
-
-  function addDropped(dropped: FileList) {
-    const known = new Set(selected.map((file) => `${file.name}:${file.size}`));
-    const additions = Array.from(dropped).filter(
-      (file) => !known.has(`${file.name}:${file.size}`),
-    );
-    select([...selected, ...additions]);
-  }
-
+  const uploading = progress !== null;
+  const validCount = selected.filter((file) => !problemWith(file)).length;
   const tooMany = selected.length > MAX_UPLOAD_FILES;
+
+  function add(files: Iterable<File>) {
+    const known = new Set(selected.map(fileKey));
+    const additions = [...files].filter((file) => !known.has(fileKey(file)));
+    setSelected([...selected, ...additions]);
+    // Let the same file be chosen again after it was removed or uploaded.
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  async function sendBatch(batch: File[]): Promise<UploadBatchState> {
+    const form = new FormData();
+    for (const file of batch) form.append("files", file, file.name);
+    try {
+      return await uploadDocumentBatch(form);
+    } catch {
+      return { status: "error", message: INTERRUPTED_MESSAGE };
+    }
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (uploading || tooMany) return;
+
+    const valid = selected.filter((file) => !problemWith(file));
+    if (valid.length === 0) return;
+    const skipped = selected.flatMap((file) => {
+      const problem = problemWith(file);
+      return problem ? [failedRow(file, problem)] : [];
+    });
+
+    setAbortMessage(null);
+    setFinished(false);
+    setResults(skipped);
+
+    // Server actions cannot stream, so send small batches one after another;
+    // each call is short enough not to time out and reports its own progress.
+    for (let start = 0; start < valid.length; start += UPLOAD_BATCH_SIZE) {
+      const batch = valid.slice(start, start + UPLOAD_BATCH_SIZE);
+      setProgress({
+        from: start + 1,
+        to: start + batch.length,
+        total: valid.length,
+      });
+
+      const outcome = await sendBatch(batch);
+      if (outcome.status === "error") {
+        const notSent = valid
+          .slice(start)
+          .map((file) => failedRow(file, `Not uploaded: ${outcome.message}`));
+        setResults((previous) => [...(previous ?? []), ...notSent]);
+        setAbortMessage(outcome.message);
+        break;
+      }
+      setResults((previous) => [...(previous ?? []), ...outcome.results]);
+    }
+
+    setProgress(null);
+    setSelected([]);
+    setFinished(true);
+  }
 
   return (
     <section
@@ -63,18 +126,13 @@ export function UploadCard() {
         Upload listings
       </h2>
       <p className="mt-1 text-sm text-muted">
-        Markdown files with YAML frontmatter. Up to {MAX_UPLOAD_FILES} files,{" "}
-        {MAX_UPLOAD_FILE_BYTES / 1024} KB each. Files with the same slug update
-        the existing listing.
+        Markdown files with YAML frontmatter, {MAX_UPLOAD_FILE_BYTES / 1024} KB
+        each at most. Large selections are uploaded in batches of{" "}
+        {UPLOAD_BATCH_SIZE}. Files with the same slug update the existing
+        listing.
       </p>
 
-      <form
-        action={(formData) => {
-          setSelected([]);
-          formAction(formData);
-        }}
-        className="mt-4"
-      >
+      <form onSubmit={onSubmit} className="mt-4">
         <label
           htmlFor="files"
           onDragOver={(event) => {
@@ -85,7 +143,7 @@ export function UploadCard() {
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
-            addDropped(event.dataTransfer.files);
+            add(Array.from(event.dataTransfer.files));
           }}
           className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
             dragging
@@ -102,14 +160,12 @@ export function UploadCard() {
           <input
             ref={inputRef}
             id="files"
-            name="files"
             type="file"
             multiple
             accept=".md,text/markdown"
+            disabled={uploading}
             className="sr-only"
-            onChange={(event) =>
-              setSelected(Array.from(event.currentTarget.files ?? []))
-            }
+            onChange={(event) => add(Array.from(event.currentTarget.files ?? []))}
           />
         </label>
 
@@ -119,7 +175,7 @@ export function UploadCard() {
               const problem = problemWith(file);
               return (
                 <li
-                  key={`${file.name}:${file.size}`}
+                  key={fileKey(file)}
                   className="flex items-center justify-between gap-3 px-3 py-2"
                 >
                   <span dir="auto" className="min-w-0 break-words">
@@ -128,7 +184,7 @@ export function UploadCard() {
                   <span
                     className={`shrink-0 text-xs ${problem ? "text-danger" : "text-muted"}`}
                   >
-                    {problem ?? formatBytes(file.size)}
+                    {problem ? `Skipped: ${problem}` : formatBytes(file.size)}
                   </span>
                 </li>
               );
@@ -146,62 +202,69 @@ export function UploadCard() {
           <Button
             type="submit"
             variant="primary"
-            disabled={pending || selected.length === 0 || tooMany}
+            disabled={uploading || validCount === 0 || tooMany}
           >
-            {pending
+            {uploading
               ? "Uploading and indexing…"
-              : `Upload${selected.length > 0 ? ` ${selected.length} file${selected.length === 1 ? "" : "s"}` : ""}`}
+              : validCount > 0
+                ? `Upload ${pluralize(validCount, "file")}`
+                : "Upload"}
           </Button>
-          {selected.length > 0 && !pending ? (
-            <Button variant="ghost" onClick={() => select([])}>
+          {selected.length > 0 && !uploading ? (
+            <Button variant="ghost" onClick={() => setSelected([])}>
               Clear
             </Button>
           ) : null}
         </div>
       </form>
 
-      <div aria-live="polite" className="mt-4">
-        {state.status === "error" ? (
+      <div className="mt-4 space-y-3">
+        {progress ? (
+          <p role="status" className="text-sm text-muted">
+            Uploading {progress.from}–{progress.to} of {progress.total}…
+          </p>
+        ) : null}
+        {abortMessage ? (
           <p
             role="alert"
             className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
           >
-            {state.message}
+            {abortMessage}
           </p>
         ) : null}
-        {state.status === "done" ? (
-          <div>
-            <p className="text-sm font-medium">
-              Finished: {summarise(state.results)}
-            </p>
-            <ul className="mt-2 divide-y divide-border rounded-lg border border-border text-sm">
-              {state.results.map((result, index) => (
-                <li key={`${result.filename}:${index}`} className="px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span dir="auto" className="min-w-0 break-words">
-                      {result.filename}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      {result.chunks !== undefined ? (
-                        <span className="text-xs text-muted">
-                          {result.chunks} chunks
-                        </span>
-                      ) : null}
-                      <OutcomeBadge outcome={result.outcome} />
-                    </span>
-                  </div>
-                  {result.error ? (
-                    <pre
-                      dir="auto"
-                      className="mt-2 whitespace-pre-wrap break-words rounded-md bg-danger-soft p-3 font-mono text-xs text-danger"
-                    >
-                      {result.error}
-                    </pre>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
+        {finished && results ? (
+          <p role="status" className="text-sm font-medium">
+            Finished: {summarise(results)}
+          </p>
+        ) : null}
+        {results && results.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border text-sm">
+            {results.map((result, index) => (
+              <li key={`${result.filename}:${index}`} className="px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span dir="auto" className="min-w-0 break-words">
+                    {result.filename}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {result.chunks !== undefined ? (
+                      <span className="text-xs text-muted">
+                        {pluralize(result.chunks, "chunk")}
+                      </span>
+                    ) : null}
+                    <OutcomeBadge outcome={result.outcome} />
+                  </span>
+                </div>
+                {result.error ? (
+                  <pre
+                    dir="auto"
+                    className="mt-2 whitespace-pre-wrap break-words rounded-md bg-danger-soft p-3 font-mono text-xs text-danger"
+                  >
+                    {result.error}
+                  </pre>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
     </section>

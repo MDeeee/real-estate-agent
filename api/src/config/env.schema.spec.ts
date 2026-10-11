@@ -28,6 +28,24 @@ describe('validateEnv', () => {
     expect(env.OPENAI_COMPAT_BASE_URL).toBeUndefined();
   });
 
+  it('accepts an internal API key of at least 32 characters and treats empty as unset', () => {
+    expect(
+      validateEnv({ ...base, INTERNAL_API_KEY: 'k'.repeat(32) }),
+    ).toMatchObject({
+      INTERNAL_API_KEY: 'k'.repeat(32),
+    });
+    expect(
+      validateEnv({ ...base, INTERNAL_API_KEY: '' }).INTERNAL_API_KEY,
+    ).toBeUndefined();
+    expect(validateEnv(base).INTERNAL_API_KEY).toBeUndefined();
+  });
+
+  it('rejects an internal API key shorter than 32 characters', () => {
+    expect(() =>
+      validateEnv({ ...base, INTERNAL_API_KEY: 'too-short' }),
+    ).toThrow(/at least 32 characters[\s\S]*INTERNAL_API_KEY/);
+  });
+
   it('fails fast with a readable message on invalid input', () => {
     expect(() =>
       validateEnv({ ADMIN_TOKEN: 'short', LLM_PROVIDER: 'gemini' }),

@@ -1,9 +1,10 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import matter from 'gray-matter';
+import { parseFrontmatter } from '../common/frontmatter.js';
 import type { Page } from '../common/pagination.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { Listing } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mergeFacetValues } from './facet-values.js';
 import { markdownExcerpt } from './markdown-excerpt.js';
 import type {
   FacetValue,
@@ -12,6 +13,7 @@ import type {
   PropertyDetail,
   PropertyFacets,
 } from './property.dto.js';
+import type { FacetsQuery } from './property-facets.schema.js';
 import type { PropertyFilters } from './property-filters.schema.js';
 import {
   DEFAULT_SEARCH_PAGE_SIZE,
@@ -94,12 +96,18 @@ export class PropertySearchService {
       throw new NotFoundException(`Property "${slug}" not found.`);
     }
     const { document, ...card } = row;
-    const body = matter(document.rawMarkdown).content.trim();
+    const body = parseFrontmatter(document.rawMarkdown).content.trim();
     return { ...toCard(card, markdownExcerpt(body)), body };
   }
 
-  async facets(): Promise<PropertyFacets> {
+  /**
+   * Facet values for the filter form. `city` only narrows the values that
+   * depend on it (compounds); the list of cities itself stays global so the
+   * visitor can always switch city.
+   */
+  async facets({ city }: FacetsQuery = {}): Promise<PropertyFacets> {
     const where = buildPropertyWhere({});
+    const inCity = buildPropertyWhere({ city });
     const [cities, compounds, types, listings, sale, rent] = await Promise.all([
       this.prisma.property.groupBy({
         by: ['city'],
@@ -108,7 +116,7 @@ export class PropertySearchService {
       }),
       this.prisma.property.groupBy({
         by: ['compound'],
-        where: { ...where, compound: { not: null } },
+        where: { ...inCity, compound: { not: null } },
         _count: { _all: true },
       }),
       this.prisma.property.groupBy({
@@ -129,14 +137,14 @@ export class PropertySearchService {
       b.count - a.count || a.value.localeCompare(b.value);
 
     return {
-      cities: cities
-        .map((row) => ({ value: row.city, count: row._count._all }))
-        .sort(byCountThenName),
-      compounds: compounds
-        .flatMap((row) =>
+      cities: mergeFacetValues(
+        cities.map((row) => ({ value: row.city, count: row._count._all })),
+      ).sort(byCountThenName),
+      compounds: mergeFacetValues(
+        compounds.flatMap((row) =>
           row.compound ? [{ value: row.compound, count: row._count._all }] : [],
-        )
-        .sort((a, b) => a.value.localeCompare(b.value)),
+        ),
+      ).sort((a, b) => a.value.localeCompare(b.value)),
       types: types
         .map((row) => ({ value: row.type, count: row._count._all }))
         .sort((a, b) => a.value.localeCompare(b.value)),

@@ -9,6 +9,10 @@ import type {
   PropertyFacets,
 } from './property.dto.js';
 import {
+  type FacetsQuery,
+  facetsQuerySchema,
+} from './property-facets.schema.js';
+import {
   type PropertySearchQuery,
   propertySearchQuerySchema,
 } from './property-search.schema.js';
@@ -36,8 +40,11 @@ export class PropertiesController {
   }
 
   @Get('facets')
-  facets(): Promise<PropertyFacets> {
-    return this.search.facets();
+  facets(
+    @Query(new DropBlankValuesPipe(), new ZodValidationPipe(facetsQuerySchema))
+    query: FacetsQuery,
+  ): Promise<PropertyFacets> {
+    return this.search.facets(query);
   }
 
   @Get(':slug')

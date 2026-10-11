@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { z } from "zod";
 import { fetchBookings, fetchDocuments } from "@/lib/admin-api";
+import { lastPageIfBeyond } from "@/lib/pagination";
 import { BookingsTable } from "./_components/bookings-table";
 import { DocumentsTable } from "./_components/documents-table";
 import { UploadCard } from "./_components/upload-card";
@@ -19,6 +21,15 @@ const tabs = [
   { id: "documents", label: "Documents" },
   { id: "bookings", label: "Bookings" },
 ] as const;
+
+/** A page past the end (a stale bookmark, a deleted record) goes to the last page. */
+function redirectPastLastPage(
+  data: { page: number; total: number; pageSize: number },
+  tab: string,
+): void {
+  const last = lastPageIfBeyond(data);
+  if (last !== null) redirect(`/admin?tab=${tab}&page=${last}`);
+}
 
 function firstValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -80,12 +91,24 @@ async function Dashboard({
         </nav>
       </div>
       {tab === "documents" ? (
-        <DocumentsTable data={await fetchDocuments(page, PAGE_SIZE)} />
+        <DocumentsTable data={await loadDocuments(page)} />
       ) : (
-        <BookingsTable data={await fetchBookings(page, PAGE_SIZE)} />
+        <BookingsTable data={await loadBookings(page)} />
       )}
     </section>
   );
+}
+
+async function loadDocuments(page: number) {
+  const data = await fetchDocuments(page, PAGE_SIZE);
+  redirectPastLastPage(data, "documents");
+  return data;
+}
+
+async function loadBookings(page: number) {
+  const data = await fetchBookings(page, PAGE_SIZE);
+  redirectPastLastPage(data, "bookings");
+  return data;
 }
 
 function DashboardSkeleton() {

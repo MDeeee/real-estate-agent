@@ -28,3 +28,20 @@ export function formatPrice(price: number, currency: string): string {
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
+
+const englishPlurals = new Intl.PluralRules("en-US");
+
+/** "1 chunk", "2 chunks", "0 chunks". */
+export function pluralize(
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string {
+  return `${formatNumber(count)} ${
+    englishPlurals.select(count) === "one" ? singular : plural
+  }`;
+}
+
+export function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

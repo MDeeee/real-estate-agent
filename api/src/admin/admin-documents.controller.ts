@@ -12,7 +12,6 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
 import { z } from 'zod';
 import {
   type Page,
@@ -21,18 +20,16 @@ import {
 } from '../common/pagination.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IngestionService } from '../ingestion/ingestion.service.js';
-import {
-  type IngestResult,
-  MAX_FILES_PER_REQUEST,
-  type UploadedFile,
+import type {
+  IngestResult,
+  UploadedFile,
 } from '../ingestion/ingestion.types.js';
 import { AdminTokenGuard } from './admin-token.guard.js';
 import {
   type DocumentListItem,
   DocumentsAdminService,
 } from './documents-admin.service.js';
-
-const HARD_FILE_LIMIT_BYTES = 1024 * 1024;
+import { UploadFilesInterceptor } from './upload-error.interceptor.js';
 
 const idParamSchema = z.string().min(1).max(64);
 
@@ -47,15 +44,7 @@ export class AdminDocumentsController {
 
   @Post()
   @HttpCode(200)
-  @UseInterceptors(
-    FilesInterceptor('files', MAX_FILES_PER_REQUEST, {
-      defParamCharset: 'utf8',
-      limits: {
-        files: MAX_FILES_PER_REQUEST,
-        fileSize: HARD_FILE_LIMIT_BYTES,
-      },
-    }),
-  )
+  @UseInterceptors(UploadFilesInterceptor)
   async upload(
     @UploadedFiles() files: UploadedFile[] | undefined,
   ): Promise<IngestResult[]> {

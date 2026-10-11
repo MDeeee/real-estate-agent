@@ -10,6 +10,12 @@ const amount = (description: string) =>
 const count = (description: string) =>
   z.coerce.number().int().nonnegative().describe(description).optional();
 
+// Query strings are typed by people and LLMs: accept `rent` as well as `RENT`.
+const listingParam = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toUpperCase() : value),
+  z.enum(Listing),
+);
+
 export const propertyFilterShape = {
   city: text(
     'City or area name, e.g. "New Cairo". Matched case-insensitively.',
@@ -19,9 +25,8 @@ export const propertyFilterShape = {
   ),
   district: text('District or neighbourhood inside the city.'),
   type: z.enum(PropertyType).describe('Property type.').optional(),
-  listing: z
-    .enum(Listing)
-    .describe('SALE for buying, RENT for renting.')
+  listing: listingParam
+    .describe('SALE for buying, RENT for renting (case-insensitive).')
     .optional(),
   priceMin: amount(
     'Minimum price in EGP. For RENT listings the price is per month.',

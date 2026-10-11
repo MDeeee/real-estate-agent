@@ -8,6 +8,8 @@ const optionalString = z
 
 const optionalUrl = optionalString.pipe(z.url().optional());
 
+export const MIN_INTERNAL_API_KEY_LENGTH = 32;
+
 export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -26,6 +28,18 @@ export const envSchema = z.object({
         .filter(Boolean),
     ),
   ADMIN_TOKEN: z.string().min(16, 'must be at least 16 characters'),
+  // Shared secret of the trusted Next.js server. When a request carries it, the
+  // rate limiter tracks the visitor IP forwarded in `x-client-ip` instead of
+  // the web server's own address.
+  INTERNAL_API_KEY: optionalString.pipe(
+    z
+      .string()
+      .min(
+        MIN_INTERNAL_API_KEY_LENGTH,
+        `must be at least ${MIN_INTERNAL_API_KEY_LENGTH} characters`,
+      )
+      .optional(),
+  ),
   THROTTLE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
 

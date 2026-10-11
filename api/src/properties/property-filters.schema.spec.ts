@@ -35,10 +35,25 @@ describe('propertyFiltersSchema', () => {
     ['non-numeric price', { priceMax: 'cheap' }],
     ['fractional bedrooms', { bedroomsMin: '2.5' }],
     ['unknown type', { type: 'castle' }],
-    ['lowercase listing', { listing: 'sale' }],
+    ['unknown listing', { listing: 'lease' }],
+    ['blank listing', { listing: '  ' }],
     ['blank city', { city: '   ' }],
   ])('rejects %s', (_label, input) => {
     expect(propertyFiltersSchema.safeParse(input).success).toBe(false);
+  });
+
+  it.each([
+    ['sale', 'SALE'],
+    ['Rent', 'RENT'],
+    [' rent ', 'RENT'],
+    ['SALE', 'SALE'],
+  ])('accepts listing "%s" case-insensitively as %s', (input, expected) => {
+    expect(propertyFiltersSchema.parse({ listing: input })).toEqual({
+      listing: expected,
+    });
+    expect(propertySearchQuerySchema.parse({ listing: input }).listing).toBe(
+      expected,
+    );
   });
 
   it('rejects unknown keys', () => {

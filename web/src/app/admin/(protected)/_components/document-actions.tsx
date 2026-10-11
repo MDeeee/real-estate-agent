@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteDocument, reindexDocument } from "@/app/admin/actions";
 import { Button } from "@/components/ui/button";
 
+type Feedback = { kind: "error" | "success"; text: string };
+
+const SUCCESS_VISIBLE_MS = 4000;
+
 export function DocumentActions({
   id,
   filename,
@@ -13,19 +17,35 @@ export function DocumentActions({
 }) {
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
 
-  function run(action: (id: string) => Promise<{ ok: boolean; message?: string }>) {
-    setMessage(null);
+  useEffect(() => {
+    if (feedback?.kind !== "success") return;
+    const timer = setTimeout(() => setFeedback(null), SUCCESS_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
+  function run(
+    action: (id: string) => Promise<{ ok: boolean; message?: string }>,
+    successText?: string,
+  ) {
+    setFeedback(null);
     startTransition(async () => {
       const result = await action(id);
       setConfirming(false);
-      if (!result.ok) setMessage(result.message ?? "The action failed.");
+      if (!result.ok) {
+        setFeedback({
+          kind: "error",
+          text: result.message ?? "The action failed.",
+        });
+      } else if (successText) {
+        setFeedback({ kind: "success", text: successText });
+      }
     });
   }
 
@@ -57,9 +77,10 @@ export function DocumentActions({
       ) : (
         <div className="flex gap-2">
           <Button
+            className="whitespace-nowrap"
             disabled={pending}
             aria-label={`Re-index ${filename}`}
-            onClick={() => run(reindexDocument)}
+            onClick={() => run(reindexDocument, "Re-indexed.")}
           >
             {pending ? "Working…" : "Re-index"}
           </Button>
@@ -68,7 +89,7 @@ export function DocumentActions({
             disabled={pending}
             aria-label={`Delete ${filename}`}
             onClick={() => {
-              setMessage(null);
+              setFeedback(null);
               setConfirming(true);
             }}
           >
@@ -76,12 +97,18 @@ export function DocumentActions({
           </Button>
         </div>
       )}
+      {/* Live regions stay mounted so screen readers announce later changes. */}
+      <p
+        role="alert"
+        className="max-w-xs text-right text-xs text-danger empty:hidden"
+      >
+        {feedback?.kind === "error" ? feedback.text : null}
+      </p>
       <p
         role="status"
-        aria-live="polite"
-        className={message ? "max-w-xs text-right text-xs text-danger" : "sr-only"}
+        className="max-w-xs text-right text-xs text-success empty:hidden"
       >
-        {message}
+        {feedback?.kind === "success" ? feedback.text : null}
       </p>
     </div>
   );

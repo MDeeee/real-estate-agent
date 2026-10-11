@@ -151,14 +151,10 @@ describe.skipIf(!databaseUrl)('properties API (integration)', () => {
     }
 
     await ingest('failed-reindex', 'Listing whose re-index failed', {});
-    embeddings.failure = new Error('embedding down');
-    await ingest(
-      'failed-reindex',
-      'Listing whose re-index failed',
-      {},
-      longBody(2),
-    );
-    embeddings.failure = undefined;
+    await prisma.document.updateMany({
+      where: { property: { slug: 'failed-reindex' } },
+      data: { status: 'FAILED', error: 'Embedding service unavailable' },
+    });
 
     await ingest('pending-listing', 'Listing still being indexed', {});
     await prisma.document.updateMany({
@@ -221,6 +217,38 @@ describe.skipIf(!databaseUrl)('properties API (integration)', () => {
       'laurel-apartment',
       'laurel-villa',
     ]);
+  });
+
+  it('accepts the listing kind in any letter case', async () => {
+    const expected = ['zamalek-flat', 'cairo-rental-villa'];
+    expect(slugs(await search('?listing=rent&sort=price_asc'))).toEqual(
+      expected,
+    );
+    expect(slugs(await search('?listing=Rent&sort=price_asc'))).toEqual(
+      expected,
+    );
+    expect((await fetch(`${apiUrl}/properties?listing=lease`)).status).toBe(
+      400,
+    );
+  });
+
+  it('keeps a live listing visible, with its old content, when an edit cannot be embedded', async () => {
+    embeddings.failure = new Error('embedding down');
+    const edited = await ingest(
+      'zamalek-flat',
+      'Edited title that never lands',
+      LISTINGS['zamalek-flat']?.fields as Fields,
+      longBody(2),
+    );
+    embeddings.failure = undefined;
+
+    expect(edited?.outcome).toBe('failed');
+    const detail = await fetch(`${apiUrl}/properties/zamalek-flat`);
+    expect(detail.status).toBe(200);
+    expect(((await detail.json()) as PropertyDetail).title).toBe(
+      'Furnished flat in Zamalek',
+    );
+    expect(slugs(await search('?listing=RENT'))).toContain('zamalek-flat');
   });
 
   it('treats blank query values as absent', async () => {
@@ -335,6 +363,73 @@ describe.skipIf(!databaseUrl)('properties API (integration)', () => {
     expect(facets.price).toEqual({
       SALE: { min: 6_000_000, max: 28_500_000 },
       RENT: { min: 55_000, max: 120_000 },
+    });
+  });
+
+  describe('facets with mixed letter case and a city filter', () => {
+    async function facetsFor(query = ''): Promise<PropertyFacets> {
+      const response = await fetch(`${apiUrl}/properties/facets${query}`);
+      expect(response.status).toBe(200);
+      return (await response.json()) as PropertyFacets;
+    }
+
+    beforeEach(async () => {
+      const base = { type: 'apartment', listing: 'SALE', price: 3_000_000 };
+      await ingest('sz-1', 'Beverly Hills flat', {
+        ...base,
+        city: 'Sheikh Zayed',
+        compound: 'Beverly Hills',
+      });
+      await ingest('sz-2', 'Beverly hills flat two', {
+        ...base,
+        city: 'sheikh zayed',
+        compound: 'beverly hills',
+      });
+      await ingest('sz-3', 'Beverly Hills flat three', {
+        ...base,
+        city: 'Sheikh Zayed',
+        compound: 'Beverly Hills',
+      });
+      await ingest('nc-1', 'Lowercase New Cairo flat', {
+        ...base,
+        city: 'new cairo',
+        compound: 'laurel hills',
+      });
+    });
+
+    it('merges case variants into one entry with summed counts', async () => {
+      const facets = await facetsFor();
+
+      expect(facets.cities).toEqual([
+        { value: 'New Cairo', count: 4 },
+        { value: 'Sheikh Zayed', count: 3 },
+        { value: 'Zamalek', count: 1 },
+      ]);
+      expect(facets.compounds).toEqual([
+        { value: 'Beverly Hills', count: 3 },
+        { value: 'Laurel Heights', count: 1 },
+        { value: 'Laurel Hills', count: 2 },
+        { value: 'Palm Gardens', count: 1 },
+      ]);
+    });
+
+    it('narrows compounds to the selected city, case-insensitively, but keeps every city', async () => {
+      const facets = await facetsFor('?city=SHEIKH%20zayed');
+
+      expect(facets.compounds).toEqual([{ value: 'Beverly Hills', count: 3 }]);
+      expect(facets.cities.map((city) => city.value)).toEqual([
+        'New Cairo',
+        'Sheikh Zayed',
+        'Zamalek',
+      ]);
+    });
+
+    it('returns no compounds for a city without listings and ignores a blank city', async () => {
+      expect((await facetsFor('?city=Nowhere')).compounds).toEqual([]);
+      expect((await facetsFor('?city=')).compounds).toHaveLength(4);
+      expect(
+        (await fetch(`${apiUrl}/properties/facets?colour=red`)).status,
+      ).toBe(400);
     });
   });
 
