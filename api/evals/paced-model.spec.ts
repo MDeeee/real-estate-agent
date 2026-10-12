@@ -11,7 +11,6 @@ function setup(delayMs: number) {
       clock += 100;
       return Promise.resolve({
         intent: 'search',
-        language: 'en',
         semanticQuery: '',
         propertyRef: undefined,
       });

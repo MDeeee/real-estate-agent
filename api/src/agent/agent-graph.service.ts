@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { BaseCheckpointSaver } from '@langchain/langgraph';
+import { ConfigService } from '@nestjs/config';
 import { BookingsService } from '../bookings/bookings.service.js';
+import type { Env } from '../config/env.schema.js';
 import { AGENT_MODEL, type AgentModel } from '../llm/agent-model.js';
 import { PropertySearchService } from '../properties/property-search.service.js';
 import { AgentRetrievalService } from './agent-retrieval.service.js';
@@ -27,6 +29,7 @@ export class AgentGraphService {
     @Inject(AgentRetrievalService) retrieval: AgentRetrievalService,
     @Inject(PropertySearchService) search: PropertySearchService,
     @Inject(BookingsService) bookings: BookingsService,
+    @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     const listings: ListingsPort = {
       facets: ttlCached(FACETS_TTL_MS, async () => {
@@ -57,6 +60,7 @@ export class AgentGraphService {
         listings,
         bookings,
         now: () => new Date(),
+        timeZone: config.get('APP_TIMEZONE', { infer: true }),
         logger: this.logger,
       },
       checkpointer.saver,

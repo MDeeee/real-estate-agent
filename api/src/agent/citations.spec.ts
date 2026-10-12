@@ -1,5 +1,23 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extractCitations, sanitiseCitations } from './citations.js';
+
+// The web chat parses the same grammar (web/src/lib/chat-citations.ts) and
+// replays the same cases: contracts/citations.json is the shared contract.
+interface CitationCase {
+  name: string;
+  text: string;
+  known: string[];
+  slugs?: string[];
+  sanitised?: { text: string; cited: string[]; dropped: string[] };
+}
+const contract = JSON.parse(
+  readFileSync(
+    resolve(import.meta.dirname, '../../../contracts/citations.json'),
+    'utf8',
+  ),
+) as { cases: CitationCase[] };
 
 const allowed = new Set(['zamalek-flat', 'laurel-villa']);
 
@@ -70,5 +88,33 @@ describe('extractCitations', () => {
 
   it('returns nothing for text without citations', () => {
     expect(extractCitations('Nothing here.')).toEqual([]);
+  });
+});
+
+describe('shared citation contract (contracts/citations.json)', () => {
+  it('has cases to replay', () => {
+    expect(contract.cases.length).toBeGreaterThan(5);
+  });
+
+  // Cases about streaming belong to the web chat only.
+  const shared = contract.cases.filter(
+    ({ slugs, sanitised }) => slugs ?? sanitised,
+  );
+  describe.each(shared)('$name', (example) => {
+    if (example.slugs) {
+      it('extracts the cited slugs', () => {
+        expect(extractCitations(example.text)).toEqual(example.slugs);
+      });
+    }
+    if (example.sanitised) {
+      it('sanitises against the known slugs', () => {
+        const result = sanitiseCitations(example.text, new Set(example.known));
+        expect(result).toEqual({
+          text: example.sanitised?.text,
+          citedSlugs: example.sanitised?.cited,
+          dropped: example.sanitised?.dropped,
+        });
+      });
+    }
   });
 });

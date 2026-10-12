@@ -1,0 +1,185 @@
+{
+  "description": "Citation grammar shared by the API (api/src/agent/citations.ts) and the web chat (web/src/lib/chat-citations.ts). The two cannot share code, so both test suites replay these cases and must agree. A citation is a bare [slug] (lowercase words joined by hyphens, with a letter in it); a bracket followed by '(' is a markdown link and is never a citation; a citation of an unknown slug is dropped together with the blank before it.",
+  "cases": [
+    {
+      "name": "valid citations, each reported once in order of first appearance",
+      "text": "Try [laurel-villa] or [zamalek-flat]; [laurel-villa] is bigger.",
+      "known": ["zamalek-flat", "laurel-villa"],
+      "slugs": ["laurel-villa", "zamalek-flat"],
+      "sanitised": {
+        "text": "Try [laurel-villa] or [zamalek-flat]; [laurel-villa] is bigger.",
+        "cited": ["laurel-villa", "zamalek-flat"],
+        "dropped": []
+      },
+      "segments": [
+        { "kind": "text", "text": "Try " },
+        { "kind": "citation", "slug": "laurel-villa" },
+        { "kind": "text", "text": " or " },
+        { "kind": "citation", "slug": "zamalek-flat" },
+        { "kind": "text", "text": "; " },
+        { "kind": "citation", "slug": "laurel-villa" },
+        { "kind": "text", "text": " is bigger." }
+      ]
+    },
+    {
+      "name": "an unknown slug is dropped with the blank before it",
+      "text": "See [zamalek-flat] and [invented-penthouse].",
+      "known": ["zamalek-flat", "laurel-villa"],
+      "slugs": ["zamalek-flat", "invented-penthouse"],
+      "sanitised": {
+        "text": "See [zamalek-flat] and.",
+        "cited": ["zamalek-flat"],
+        "dropped": ["invented-penthouse"]
+      },
+      "segments": [
+        { "kind": "text", "text": "See " },
+        { "kind": "citation", "slug": "zamalek-flat" },
+        { "kind": "text", "text": " and." }
+      ]
+    },
+    {
+      "name": "brackets that are not slugs stay text",
+      "text": "Floor [4] and [Note] and [Hello World] and [123] stay.",
+      "known": ["zamalek-flat"],
+      "slugs": [],
+      "sanitised": {
+        "text": "Floor [4] and [Note] and [Hello World] and [123] stay.",
+        "cited": [],
+        "dropped": []
+      },
+      "segments": [
+        {
+          "kind": "text",
+          "text": "Floor [4] and [Note] and [Hello World] and [123] stay."
+        }
+      ]
+    },
+    {
+      "name": "markdown links are never citations, even when the link text looks like a slug",
+      "text": "See [zamalek-flat](https://evil.example/x) and [docs](https://a.b) or [invented-penthouse](http://c.d).",
+      "known": ["zamalek-flat", "laurel-villa"],
+      "slugs": [],
+      "sanitised": {
+        "text": "See [zamalek-flat](https://evil.example/x) and [docs](https://a.b) or [invented-penthouse](http://c.d).",
+        "cited": [],
+        "dropped": []
+      },
+      "segments": [
+        {
+          "kind": "text",
+          "text": "See [zamalek-flat](https://evil.example/x) and [docs](https://a.b) or [invented-penthouse](http://c.d)."
+        }
+      ]
+    },
+    {
+      "name": "a citation followed by a space and a parenthesis is still a citation",
+      "text": "Try [zamalek-flat] (2 bedrooms).",
+      "known": ["zamalek-flat"],
+      "slugs": ["zamalek-flat"],
+      "sanitised": {
+        "text": "Try [zamalek-flat] (2 bedrooms).",
+        "cited": ["zamalek-flat"],
+        "dropped": []
+      },
+      "segments": [
+        { "kind": "text", "text": "Try " },
+        { "kind": "citation", "slug": "zamalek-flat" },
+        { "kind": "text", "text": " (2 bedrooms)." }
+      ]
+    },
+    {
+      "name": "two citations in a row",
+      "text": "[laurel-villa][zamalek-flat]",
+      "known": ["zamalek-flat", "laurel-villa"],
+      "slugs": ["laurel-villa", "zamalek-flat"],
+      "sanitised": {
+        "text": "[laurel-villa][zamalek-flat]",
+        "cited": ["laurel-villa", "zamalek-flat"],
+        "dropped": []
+      },
+      "segments": [
+        { "kind": "citation", "slug": "laurel-villa" },
+        { "kind": "citation", "slug": "zamalek-flat" }
+      ]
+    },
+    {
+      "name": "Arabic text around a citation",
+      "text": "فيلا [laurel-villa] للإيجار",
+      "known": ["laurel-villa"],
+      "slugs": ["laurel-villa"],
+      "sanitised": {
+        "text": "فيلا [laurel-villa] للإيجار",
+        "cited": ["laurel-villa"],
+        "dropped": []
+      },
+      "segments": [
+        { "kind": "text", "text": "فيلا " },
+        { "kind": "citation", "slug": "laurel-villa" },
+        { "kind": "text", "text": " للإيجار" }
+      ]
+    },
+    {
+      "name": "a slug without a hyphen is a citation too",
+      "text": "Maybe [studio] works.",
+      "known": ["studio"],
+      "slugs": ["studio"],
+      "sanitised": {
+        "text": "Maybe [studio] works.",
+        "cited": ["studio"],
+        "dropped": []
+      },
+      "segments": [
+        { "kind": "text", "text": "Maybe " },
+        { "kind": "citation", "slug": "studio" },
+        { "kind": "text", "text": " works." }
+      ]
+    },
+    {
+      "name": "text without citations",
+      "text": "Nothing here.",
+      "known": ["zamalek-flat"],
+      "slugs": [],
+      "sanitised": { "text": "Nothing here.", "cited": [], "dropped": [] },
+      "segments": [{ "kind": "text", "text": "Nothing here." }]
+    },
+    {
+      "name": "streaming hides a citation that is still being typed",
+      "text": "Try this one [laurel-vil",
+      "known": ["laurel-villa"],
+      "streaming": true,
+      "segments": [{ "kind": "text", "text": "Try this one " }]
+    },
+    {
+      "name": "streaming hides a lone opening bracket",
+      "text": "Try this one [",
+      "known": ["laurel-villa"],
+      "streaming": true,
+      "segments": [{ "kind": "text", "text": "Try this one " }]
+    },
+    {
+      "name": "streaming shows a citation as soon as it closes",
+      "text": "Try [laurel-villa]",
+      "known": ["laurel-villa"],
+      "streaming": true,
+      "segments": [
+        { "kind": "text", "text": "Try " },
+        { "kind": "citation", "slug": "laurel-villa" }
+      ]
+    },
+    {
+      "name": "streaming keeps brackets that cannot be a citation",
+      "text": "Price [EGP",
+      "known": ["laurel-villa"],
+      "streaming": true,
+      "segments": [{ "kind": "text", "text": "Price [EGP" }]
+    },
+    {
+      "name": "a finished answer keeps an unfinished bracket",
+      "text": "Try [lau",
+      "known": ["laurel-villa"],
+      "slugs": [],
+      "sanitised": { "text": "Try [lau", "cited": [], "dropped": [] },
+      "segments": [{ "kind": "text", "text": "Try [lau" }]
+    }
+  ]
+}

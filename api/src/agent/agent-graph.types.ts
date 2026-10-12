@@ -33,5 +33,7 @@ export interface AgentGraphDeps {
   listings: ListingsPort;
   bookings: Pick<BookingsService, 'create'>;
   now: () => Date;
+  /** IANA name of the business time zone (`APP_TIMEZONE`): "today" and viewing hours are in it. */
+  timeZone: string;
   logger: GraphLogger;
 }

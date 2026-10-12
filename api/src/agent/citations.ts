@@ -1,3 +1,7 @@
+// The web chat parses the same grammar in web/src/lib/chat-citations.ts. The
+// two cannot share code, so both test suites replay contracts/citations.json:
+// change the rule in one place and that file will fail the other.
+
 /**
  * A bare `[slug]`. A `[text](url)` markdown link is not a citation (it names a
  * URL, not a listing), so a bracket followed by `(` is left alone.

@@ -38,11 +38,27 @@ async function callApi(
       cache: "no-store",
       headers: { ...init.headers, ...(await visitorHeaders()) },
     });
-  } catch (error) {
-    // A visitor closing the tab aborts the upstream request too.
-    if (init.signal?.aborted) throw error;
+  } catch {
+    // A visitor pressing Stop or closing the tab aborts the upstream request
+    // too. Nobody is left to read the response, and it is no server error.
+    if (init.signal?.aborted) return new Response(null, { status: 499 });
     return jsonError(API_UNREACHABLE_MESSAGE, 503);
   }
+}
+
+/** Nginx's "client closed request": the visitor left, nobody reads the answer. */
+const CLIENT_CLOSED = 499;
+
+/**
+ * A request the visitor abandoned (Stop, closing the tab, the dev-mode Strict
+ * Mode remount that aborts the first history GET) is no server error, however
+ * the upstream call ended: it gets an empty 499 and the upstream body is
+ * released.
+ */
+function clientClosed(request: Request, upstream: Response): Response | null {
+  if (!request.signal.aborted) return null;
+  void upstream.body?.cancel().catch(() => undefined);
+  return new Response(null, { status: CLIENT_CLOSED });
 }
 
 function isMessageBody(value: unknown): value is { message: string } {
@@ -88,6 +104,8 @@ export async function POST(request: Request): Promise<Response> {
     body: JSON.stringify({ threadId, message: parsed.message }),
     signal: request.signal,
   });
+  const closed = clientClosed(request, upstream);
+  if (closed) return closed;
   return passThrough(
     upstream,
     existing
@@ -108,5 +126,5 @@ export async function GET(request: Request): Promise<Response> {
   const upstream = await callApi(`/chat/${threadId}`, {
     signal: request.signal,
   });
-  return passThrough(upstream);
+  return clientClosed(request, upstream) ?? passThrough(upstream);
 }

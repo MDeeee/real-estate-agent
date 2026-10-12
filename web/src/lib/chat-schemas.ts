@@ -40,7 +40,10 @@ export const bookingSchema = z.object({
   propertyTitle: z.string(),
   name: z.string(),
   phone: z.string(),
+  /** A calendar day, `YYYY-MM-DD`. */
   preferredDate: z.string(),
+  /** `HH:mm`; null when any time suits (also for bookings made before times existed). */
+  preferredTime: z.string().nullable().default(null),
   status: z.string(),
 });
 

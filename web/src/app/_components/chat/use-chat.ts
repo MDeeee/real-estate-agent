@@ -10,6 +10,7 @@ import {
   type SearchSummary,
 } from "@/lib/chat-schemas";
 import { postChat } from "@/lib/chat-request";
+import { settleStopped } from "@/lib/chat-stop";
 import { readChatStream } from "@/lib/chat-stream";
 
 export type ChatStage = "thinking" | "searching" | "booking";
@@ -21,7 +22,11 @@ export interface ChatMessage {
   properties?: ChatCard[];
   booking?: ChatBooking;
   search?: SearchSummary;
+  /** Listings the final answer cited, in citation order (absent while streaming and for restored messages). */
+  citedSlugs?: string[];
   streaming?: boolean;
+  /** The visitor pressed Stop: a partial reply is kept for now but not stored by the server; on a visitor message it marks one that got no reply. */
+  stopped?: boolean;
   error?: string;
 }
 
@@ -95,6 +100,9 @@ export function useChat() {
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
 
+  // Leaving the page ends a running request quietly.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -110,7 +118,8 @@ export function useChat() {
         });
         if (!response.ok) return;
         const parsed = historySchema.safeParse(await response.json());
-        if (!parsed.success) return;
+        // Aborted meanwhile (Strict Mode remount, leaving the page): not ours.
+        if (!parsed.success || controller.signal.aborted) return;
         setMessages(
           parsed.data.messages.map((message) => ({
             id: nextId(),
@@ -161,7 +170,12 @@ export function useChat() {
           patchLast((m) => ({ ...m, booking: event.booking }));
           break;
         case "final":
-          patchLast((m) => ({ ...m, text: event.text, streaming: false }));
+          patchLast((m) => ({
+            ...m,
+            text: event.text,
+            citedSlugs: event.citedSlugs,
+            streaming: false,
+          }));
           break;
         case "error":
           patchLast((m) => ({ ...m, error: event.message, streaming: false }));
@@ -204,16 +218,11 @@ export function useChat() {
             : m,
         );
       } catch {
+        // Stop (or a new chat) aborts the request on purpose: whatever the
+        // rejection looks like (AbortError, a stream error, ...), it is not
+        // a failure and is never reported as one.
         if (controller.signal.aborted) {
-          setMessages((current) => {
-            const last = current.at(-1);
-            if (last?.role === "assistant" && !last.text && !last.properties) {
-              return current.slice(0, -1);
-            }
-            return current.map((m, i) =>
-              i === current.length - 1 ? { ...m, streaming: false } : m,
-            );
-          });
+          setMessages((current) => settleStopped(current));
         } else {
           patchLast((m) => ({ ...m, error: GENERIC_ERROR, streaming: false }));
         }

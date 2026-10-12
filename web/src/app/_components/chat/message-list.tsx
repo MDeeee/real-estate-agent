@@ -28,6 +28,8 @@ export function MessageList({
     last?.properties,
     last?.booking,
     last?.error,
+    last?.streaming,
+    last?.stopped,
   ]);
 
   return (

@@ -1,3 +1,4 @@
+import { formatBookingWhen } from "@/lib/booking-when";
 import type { ChatBooking } from "@/lib/chat-schemas";
 
 export function BookingCard({ booking }: { booking: ChatBooking }) {
@@ -12,8 +13,10 @@ export function BookingCard({ booking }: { booking: ChatBooking }) {
         <dd className="font-mono font-medium">{booking.reference}</dd>
         <dt className="text-muted">Property</dt>
         <dd dir="auto">{booking.propertyTitle}</dd>
-        <dt className="text-muted">Date</dt>
-        <dd>{booking.preferredDate}</dd>
+        <dt className="text-muted">When</dt>
+        <dd>
+          {formatBookingWhen(booking.preferredDate, booking.preferredTime)}
+        </dd>
         <dt className="text-muted">Name</dt>
         <dd dir="auto">{booking.name}</dd>
         <dt className="text-muted">Phone</dt>

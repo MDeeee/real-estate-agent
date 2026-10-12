@@ -30,6 +30,10 @@ export interface BookingDraft {
   name?: string | undefined;
   phone?: string | undefined;
   preferredDate?: string | undefined;
+  /** `HH:mm`, 24 h, inside the viewing hours. */
+  preferredTime?: string | undefined;
+  /** The visitor said any time suits them: no time is stored. */
+  anyTime?: boolean | undefined;
 }
 
 /** Token counters one chat turn accumulates across every model call. */
@@ -53,7 +57,6 @@ export interface ClassifyInput {
 
 export interface Classification {
   intent: Intent;
-  language: Language;
   /**
    * The FULL current qualitative preferences to rank by meaning (previous ones
    * carried over unless the visitor replaced or dropped them); empty when none.
@@ -73,11 +76,19 @@ export interface ExtractFiltersInput {
 }
 
 export interface BookingExtractionInput {
-  messages: ConversationTurn[];
+  /**
+   * The conversation BEFORE the visitor's latest message: context for the
+   * name, phone, date and listing only. Never a source of the time.
+   */
+  history: ConversationTurn[];
+  /** The visitor's latest message: the only source of the time fields. */
+  latestMessage: string;
   draft: BookingDraft;
   candidates: CandidateRef[];
-  /** Today's date in Cairo, `YYYY-MM-DD`, for relative dates like "next Sunday". */
+  /** Today's date in the business time zone, `YYYY-MM-DD`, for relative dates like "next Sunday". */
   today: string;
+  /** IANA name of the business time zone the dates and times are in. */
+  timeZone: string;
 }
 
 export interface BookingExtraction {
@@ -86,6 +97,18 @@ export interface BookingExtraction {
   phone?: string | undefined;
   /** `YYYY-MM-DD` as understood by the model; still to be validated. */
   preferredDate?: string | undefined;
+  /**
+   * `HH:mm` (24 h) as understood by the model; still to be validated. Taken
+   * from the latest message only.
+   */
+  preferredTime?: string | undefined;
+  /** The latest message explicitly says any time suits ("any time"). */
+  anyTime?: boolean | undefined;
+  /**
+   * The latest message names only a vague part of the day ("evening", "after
+   * work", "after 6") that cannot be turned into one clock time.
+   */
+  timeVague?: boolean | undefined;
 }
 
 export interface ListingContext {

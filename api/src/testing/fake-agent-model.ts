@@ -46,6 +46,8 @@ export class FakeAgentModel implements AgentModel {
 
   /** Consumed first by `extractFilters`; an Error is thrown. */
   filterQueue: (Record<string, unknown> | Error)[] = [];
+  /** Consumed first by `extractBooking`, replacing what the fake would read. */
+  bookingQueue: BookingExtraction[] = [];
   /** Appended to every streamed answer, e.g. a citation of an unknown slug. */
   answerSuffix = '';
 
@@ -56,11 +58,10 @@ export class FakeAgentModel implements AgentModel {
   classify(input: ClassifyInput): Promise<Classification> {
     this.classifyCalls.push(input);
     const text = lastUserText(input.messages).toLowerCase();
-    const language = /[؀-ۿ]/.test(text) ? 'ar' : 'en';
     const ordinal = ORDINALS.findIndex((word) => text.includes(word));
     const propertyRef =
       ordinal >= 0 ? `the ${ORDINALS[ordinal]} one` : undefined;
-    const base = { language, semanticQuery: '', propertyRef } as const;
+    const base = { semanticQuery: '', propertyRef } as const;
 
     if (/weather|joke|football|capital of/.test(text)) {
       return Promise.resolve({ ...base, intent: 'off_topic' });
@@ -68,7 +69,15 @@ export class FakeAgentModel implements AgentModel {
     if (/^(hi|hello|thanks)\b/.test(text)) {
       return Promise.resolve({ ...base, intent: 'smalltalk' });
     }
+    // Like the real router, a booking in progress claims the messages that
+    // carry a time, "any time" or a correction.
+    const continuesBooking =
+      input.bookingInProgress &&
+      /\d{1,2}:\d{2}|any ?time|whenever|evening|morning|after (work|\d)|actually|instead/.test(
+        text,
+      );
     if (
+      continuesBooking ||
       /\bbook\b|\bview (it|them|the|this)\b|\bviewing\b|my name is|\b01\d{9}\b|\d{4}-\d{2}-\d{2}/.test(
         text,
       )
@@ -87,7 +96,11 @@ export class FakeAgentModel implements AgentModel {
         : /forget the view/.test(text)
           ? ''
           : input.previousSemanticQuery;
-    return Promise.resolve({ ...base, intent: 'search', semanticQuery: wanted });
+    return Promise.resolve({
+      ...base,
+      intent: 'search',
+      semanticQuery: wanted,
+    });
   }
 
   extractFilters(input: ExtractFiltersInput): Promise<Record<string, unknown>> {
@@ -116,20 +129,30 @@ export class FakeAgentModel implements AgentModel {
 
   extractBooking(input: BookingExtractionInput): Promise<BookingExtraction> {
     this.bookingCalls.push(input);
-    const text = lastUserText(input.messages);
+    const queued = this.bookingQueue.shift();
+    if (queued) return Promise.resolve(queued);
+    // Like the real model, the time is read from the latest message only.
+    const text = input.latestMessage;
     const ordinal = ORDINALS.findIndex((word) =>
       text.toLowerCase().includes(word),
     );
     const name = /my name is ([\p{L} ]+?)(?:[,.]| and |$)/iu.exec(text)?.[1];
     const phone = /(\+?\d[\d -]{8,}\d)/.exec(
-      text.replace(/\d{4}-\d{2}-\d{2}/, ''),
+      text.replace(/\d{4}-\d{2}-\d{2}/, '').replace(/\b\d{1,2}:\d{2}\b/, ''),
     )?.[1];
     const date = /(\d{4}-\d{2}-\d{2})/.exec(text)?.[1];
+    const time = /\b(\d{1,2}:\d{2})\b/.exec(text)?.[1];
+    const anyTime = /\bany ?time\b|أي وقت/i.test(text);
+    const timeVague =
+      /\b(evening|morning|afternoon|after work)\b|\bafter \d/i.test(text);
     return Promise.resolve({
       propertyRef: ordinal >= 0 ? `the ${ORDINALS[ordinal]} one` : undefined,
       name,
       phone,
       preferredDate: date,
+      preferredTime: time,
+      anyTime,
+      timeVague,
     });
   }
 

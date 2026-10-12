@@ -6,7 +6,7 @@ import {
 } from '../../properties/property-filters.schema.js';
 import type { AgentGraphDeps } from '../agent-graph.types.js';
 import type { AgentStateType, AgentStateUpdate } from '../agent-state.js';
-import { cairoToday } from '../booking-validation.js';
+import { businessToday } from '../booking-validation.js';
 import { callOptions, emit, isAborted, recentTurns } from './node-support.js';
 
 const MAX_ATTEMPTS = 2;
@@ -34,7 +34,7 @@ function describeIssues(error: z.ZodError): string[] {
 }
 
 export function createExtractFiltersNode(deps: AgentGraphDeps) {
-  const { model, listings, logger, now } = deps;
+  const { model, listings, logger, now, timeZone } = deps;
 
   return async (
     state: AgentStateType,
@@ -43,7 +43,7 @@ export function createExtractFiltersNode(deps: AgentGraphDeps) {
     emit(config, { type: 'status', stage: 'searching' });
     const facets = await listings.facets();
     const messages = recentTurns(state.messages);
-    const today = cairoToday(now());
+    const today = businessToday(now(), timeZone);
 
     let validationErrors: string[] | undefined;
     let filters: PropertyFilters | undefined;

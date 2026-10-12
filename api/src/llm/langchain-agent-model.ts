@@ -90,7 +90,6 @@ export class LangChainAgentModel implements AgentModel {
     );
     return {
       intent: result.intent,
-      language: result.language,
       semanticQuery: result.semanticQuery.trim(),
       propertyRef: result.propertyRef?.trim() || undefined,
     };
@@ -123,6 +122,9 @@ export class LangChainAgentModel implements AgentModel {
       name: result.name?.trim() || undefined,
       phone: result.phone?.trim() || undefined,
       preferredDate: result.preferredDate?.trim() || undefined,
+      preferredTime: result.preferredTime?.trim() || undefined,
+      anyTime: result.anyTime,
+      timeVague: result.timeVague,
     };
   }
 

@@ -76,6 +76,7 @@ export function createGraphHarness(
       name: string;
       phone: string;
       preferredDate: string;
+      preferredTime?: string | null;
     }) => {
       const card = cards.find((c) => c.slug === input.propertySlug);
       const booking: BookingSummary = {
@@ -86,6 +87,7 @@ export function createGraphHarness(
         name: input.name,
         phone: input.phone,
         preferredDate: input.preferredDate,
+        preferredTime: input.preferredTime ?? null,
         status: 'CONFIRMED',
       };
       return Promise.resolve({ booking, created: true });
@@ -110,6 +112,7 @@ export function createGraphHarness(
     },
     bookings: { create: createBooking },
     now: () => FIXED_NOW,
+    timeZone: 'Africa/Cairo',
     logger: { warn: (message) => warnings.push(message) },
   };
   const checkpointer = new MemorySaver();

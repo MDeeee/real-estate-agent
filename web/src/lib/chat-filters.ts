@@ -1,5 +1,5 @@
 import type { ChatFilters } from "./chat-schemas";
-import { capitalise, formatNumber } from "./format";
+import { capitalise, formatNumber } from "./format.ts";
 
 export interface FilterChip {
   key: string;
@@ -37,6 +37,11 @@ export function filterChips(filters: ChatFilters): FilterChip[] {
     add(key, AMOUNT_LABELS[key], amount !== undefined ? `${formatNumber(amount)} m²` : undefined);
   }
   return chips;
+}
+
+/** Whether the AI constrained the search at all (any filter with a value). */
+export function hasActiveFilters(filters: ChatFilters): boolean {
+  return filterChips(filters).length > 0;
 }
 
 const SEARCH_KEYS = [

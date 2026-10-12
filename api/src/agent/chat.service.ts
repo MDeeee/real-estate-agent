@@ -14,8 +14,15 @@ import {
 } from './agent-state.js';
 import type { ChatCard } from './chat-card.js';
 import type { ChatEvent, NodeEvent } from './chat-events.js';
-import { USAGE_KEY, messageText } from './nodes/node-support.js';
+import {
+  TURN_BOOKING_KEY,
+  type TurnBooking,
+  USAGE_KEY,
+  assistantMessage,
+  messageText,
+} from './nodes/node-support.js';
 import { maskPhone, maskPhonesInText, threadLogId } from './pii.js';
+import { bookingConfirmation } from './replies.js';
 
 export const TURN_TIMEOUT_MS = 60_000;
 
@@ -103,6 +110,11 @@ export class ChatService {
    * Runs one turn. A turn that fails, times out or is abandoned by the client
    * is rolled back before the generator finishes (and so before the caller
    * releases the lock), leaving the conversation exactly as it was.
+   *
+   * The exception is a turn that already created a booking: that row exists
+   * and was shown to the visitor, so the turn is kept (the confirmation is
+   * stored as the reply) instead of leaving a booking without a conversation
+   * that mentions it.
    */
   async *run(
     threadId: string,
@@ -128,7 +140,9 @@ export class ChatService {
     const previousIds = new Set((beforeValues.messages ?? []).map((m) => m.id));
 
     const outcome = emptyOutcome();
+    const turnBooking: TurnBooking = {};
     let committed = false;
+    let kept: string | undefined;
     let failure: unknown;
     try {
       const stream = await this.agent.graph.stream(
@@ -136,7 +150,11 @@ export class ChatService {
           messages: [new HumanMessage({ id: randomUUID(), content: message })],
         },
         {
-          configurable: { thread_id: threadId, [USAGE_KEY]: usage },
+          configurable: {
+            thread_id: threadId,
+            [USAGE_KEY]: usage,
+            [TURN_BOOKING_KEY]: turnBooking,
+          },
           streamMode: ['custom', 'updates'],
           recursionLimit: RECURSION_LIMIT,
           signal,
@@ -157,14 +175,40 @@ export class ChatService {
     } finally {
       // Also runs when the caller stops iterating early (the client is gone).
       if (!committed) {
-        await this.rollback(threadId, log, existed, beforeValues, previousIds);
+        if (turnBooking.booking) {
+          kept = await this.keepBookedTurn(
+            threadId,
+            log,
+            turnBooking,
+            previousIds,
+          );
+        } else {
+          await this.rollback(
+            threadId,
+            log,
+            existed,
+            beforeValues,
+            previousIds,
+          );
+        }
       }
     }
 
     if (!committed) {
       if (clientSignal.aborted) return;
-      yield* this.failure(log, failure, timeout.aborted);
-      return;
+      if (kept === undefined) {
+        yield* this.failure(log, failure, timeout.aborted);
+        return;
+      }
+      // The booking stands: tell the visitor so instead of reporting an error.
+      this.logger.warn(
+        JSON.stringify({
+          event: 'chat_turn_kept_after_booking',
+          thread: log,
+          error: describeError(failure),
+        }),
+      );
+      outcome.reply = kept;
     }
 
     this.logger.log(
@@ -205,6 +249,70 @@ export class ChatService {
     );
     yield { type: 'error', message: timedOut ? TIMEOUT_ERROR : GENERIC_ERROR };
     yield { type: 'done' };
+  }
+
+  /**
+   * Keeps a turn that created a booking even though it was cut short. When
+   * the book node's update did not reach the checkpoint, the confirmation is
+   * stored now: built from the trusted booking summary (not from partly
+   * streamed text) with the same wording the node uses, and the draft is
+   * cleared exactly as the node would have. Returns the confirmation text, or
+   * `undefined` when it could not be stored.
+   */
+  private async keepBookedTurn(
+    threadId: string,
+    log: string,
+    turn: TurnBooking,
+    previousIds: ReadonlySet<string | undefined>,
+  ): Promise<string | undefined> {
+    const { booking, created } = turn;
+    if (!booking) return undefined;
+    try {
+      const config = { configurable: { thread_id: threadId } };
+      const values = (await this.agent.graph.getState(config))
+        .values as Partial<AgentStateType>;
+      const added = (values.messages ?? []).filter(
+        ({ id }) => id !== undefined && !previousIds.has(id),
+      );
+      const stored = added.findLast(
+        (message) =>
+          message.getType() === 'ai' &&
+          (message.additional_kwargs as AssistantExtras).booking !== undefined,
+      );
+      if (stored) return messageText(stored);
+
+      const text = bookingConfirmation(
+        values.language ?? initialValues().language,
+        booking,
+        created ?? true,
+      );
+      await this.agent.graph.updateState(
+        config,
+        {
+          messages: [
+            // Partial replies of the cut-off turn make no sense next to it.
+            ...added
+              .filter((message) => message.getType() === 'ai')
+              .map(({ id }) => new RemoveMessage({ id: id ?? '' })),
+            assistantMessage(text, { booking }),
+          ],
+          bookingDraft: {},
+          focusSlug: booking.propertySlug,
+          citedSlugs: [],
+        },
+        TRIM_NODE,
+      );
+      return text;
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'chat_keep_booked_turn_failed',
+          thread: log,
+          error: describeError(error),
+        }),
+      );
+      return undefined;
+    }
   }
 
   /**

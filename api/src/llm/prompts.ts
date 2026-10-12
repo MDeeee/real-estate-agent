@@ -1,3 +1,4 @@
+import { weekdayOf } from '../agent/booking-validation.js';
 import type { ChatCard } from '../agent/chat-card.js';
 import type { PropertyFilters } from '../properties/property-filters.schema.js';
 import type {
@@ -139,23 +140,33 @@ export function extractFiltersMessages(
 export function extractBookingMessages(
   input: BookingExtractionInput,
 ): PromptMessage[] {
+  // The time fields come from the latest message alone, so the draft shown to
+  // the model carries no time: an old answer must not be copied forward.
+  const { preferredTime: _time, anyTime: _anyTime, ...draft } = input.draft;
   const system = [
     'You collect the details for booking a property viewing from a conversation.',
-    'Extract only what the visitor actually stated; use null for anything missing. Never invent a name, phone number or date.',
-    `Today is ${input.today}. Resolve relative dates ("next Sunday", "tomorrow", "الخميس الجاي") to an ISO date YYYY-MM-DD.`,
+    'Extract only what the visitor actually stated; use null for anything missing. Never invent a name, phone number, date or time.',
+    'The name, phone number, date and listing may come from anywhere in the conversation (the earlier turns are context for them).',
+    `Today is ${weekdayOf(input.today) ?? 'unknown weekday'} ${input.today} in the ${input.timeZone} time zone. Resolve relative dates ("today", "tomorrow", "next Monday", "الخميس الجاي") in that time zone to an ISO date YYYY-MM-DD; "next Monday" is the first Monday after today.`,
+    'The viewing TIME (preferredTime, anyTime, timeVague) is read from the LATEST visitor message ONLY. Earlier turns may contain times that were rejected or changed: ignore them completely. If the latest message does not talk about the time of day, return preferredTime null, anyTime false and timeVague false.',
+    'preferredTime is an exact time of day in the same time zone as 24-hour HH:mm ("5 pm" => "17:00", "9 in the morning" => "09:00"). Do not guess a time from a date alone. If the visitor says any time suits them, set anyTime to true and preferredTime to null. If they give only a vague part of the day ("evening", "after work", "after 6"), set timeVague to true and preferredTime to null.',
     'Digits may be Arabic-Indic; copy the phone number as written.',
     TURN_RULE,
     '',
     'Listings currently shown (numbered in display order):',
     numberedCandidates(input.candidates),
     '',
-    `Details already collected: ${JSON.stringify(input.draft)}`,
+    `Details already collected: ${JSON.stringify(draft)}`,
   ].join('\n');
+  const earlier =
+    input.history.length > 0
+      ? `Earlier conversation (context only):\n${transcript(input.history)}`
+      : 'Earlier conversation: (none)';
   return [
     { role: 'system', content: system },
     {
       role: 'user',
-      content: `Conversation:\n${transcript(input.messages)}\n\nExtract the booking details from the conversation. If the visitor corrected a detail, return the corrected value.`,
+      content: `${earlier}\n\nLatest visitor message:\n${transcript([{ role: 'user', text: input.latestMessage }])}\n\nExtract the booking details. If the visitor corrected a detail in the latest message, return the corrected value.`,
     },
   ];
 }

@@ -100,7 +100,10 @@ model Booking {
   property      Property      @relation(fields: [propertyId], references: [id])
   name          String
   phone         String
-  preferredDate DateTime
+  /// Calendar day of the viewing (no time zone shifting): midnight UTC when read.
+  preferredDate DateTime      @db.Date
+  /// Preferred viewing time, "HH:mm" (24 h, business time zone); null = any time.
+  preferredTime String?
   status        BookingStatus @default(CONFIRMED)
   threadId      String?
   createdAt     DateTime      @default(now())

@@ -18,6 +18,22 @@ describe('validateEnv', () => {
     expect(env.THROTTLE_LIMIT).toBe(120);
   });
 
+  it('defaults the business time zone to Africa/Cairo, also when blank', () => {
+    expect(validateEnv(base).APP_TIMEZONE).toBe('Africa/Cairo');
+    expect(validateEnv({ ...base, APP_TIMEZONE: '' }).APP_TIMEZONE).toBe(
+      'Africa/Cairo',
+    );
+    expect(
+      validateEnv({ ...base, APP_TIMEZONE: 'Asia/Dubai' }).APP_TIMEZONE,
+    ).toBe('Asia/Dubai');
+  });
+
+  it('rejects an unknown time zone', () => {
+    expect(() => validateEnv({ ...base, APP_TIMEZONE: 'Mars/Base' })).toThrow(
+      /IANA time zone[\s\S]*APP_TIMEZONE|APP_TIMEZONE[\s\S]*IANA time zone/,
+    );
+  });
+
   it('treats empty optional variables as unset', () => {
     const env = validateEnv({
       ...base,

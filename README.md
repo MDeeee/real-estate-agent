@@ -9,7 +9,7 @@ An AI assistant for the Egyptian property market, in Arabic and English. A visit
 ## Features
 
 - **Chat and filter search on one page**, backed by the same data. Chat answers stream over SSE and show property cards built from structured results, not parsed from text.
-- **Arabic (including Egyptian dialect) and English**: the agent replies in the visitor's language.
+- **Arabic (including Egyptian dialect) and English**: the agent replies in the visitor's language (Arabic when at least 30 percent of the latest message's letters are Arabic, otherwise English; decided in code, not by the model).
 - **Refinements and follow-ups**: "cheaper", "in Zayed instead", "tell me more about the second one".
 - **Direct viewing booking** in chat: collects name, Egyptian mobile number and date, validates them, confirms with a reference. No approval step.
 - **Admin dashboard** (`/admin`): upload one or many `.md` files, see indexing status and exact validation errors, re-index, delete, list bookings.
@@ -64,12 +64,12 @@ flowchart TD
 
 | Node | What it does |
 | --- | --- |
-| `route` | One structured LLM call: intent (`search`, `details`, `book`, `smalltalk`, `off_topic`), reply language, qualitative preferences |
+| `route` | One structured LLM call: intent (`search`, `details`, `book`, `smalltalk`, `off_topic`), qualitative preferences; the reply language is detected from the visitor's message, not asked of the model |
 | `extract_filters` | Turns the request into validated filters (zod), one retry on invalid output; refinements start from the previous filters |
 | `retrieve` | Filter, then rank by vector similarity (see below); top 5 |
 | `answer` | Streams a reply grounded in the retrieved listings, then runs the citation post-check |
 | `details` | Resolves "the second one" or a title against the last results and answers from that listing's full text |
-| `book` | Collects and validates name, phone and date; creates the booking only when complete |
+| `book` | Collects and validates name, phone, date and an optional time (09:00-21:00, asked once, "any time" accepted); creates the booking only when complete |
 | `smalltalk`, `refuse` | Short localized static replies |
 | `trim` | Caps the stored history at the last 20 messages |
 
@@ -85,7 +85,7 @@ Retrieval is **filter, then rank** ([ADR 0004](docs/adr/0004-filter-then-rank-re
 - **Rollback**: a turn that fails, times out or is stopped leaves the stored conversation exactly as before, so a retry never duplicates a message.
 - **PII masking**: phone numbers are masked in the history endpoint (`010****4567`); logs carry only a short hash of the conversation id.
 - **Cookie-held conversation ids**: the id is a bearer token for the history, so the browser never sees it (`HttpOnly`, `SameSite=Lax`, `Secure` in production).
-- **Validated booking**: Egyptian mobile format, a date after today and inside the booking window, and one booking per conversation, property and date.
+- **Validated booking**: Egyptian mobile format, a date after today and inside the booking window, an optional viewing time between 09:00 and 21:00, and one booking per conversation, property and date (booking the same day again at another time updates it). Dates and times are in the business time zone `APP_TIMEZONE` (default `Africa/Cairo`); the booking date is stored as a calendar date, so it never shifts with a browser's time zone.
 
 ## Tech stack
 

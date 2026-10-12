@@ -142,6 +142,102 @@ describe('ChatService turn rollback', () => {
     expect(after.values.bookingDraft).toEqual(before.values.bookingDraft);
   });
 
+  describe('a turn that already booked', () => {
+    const BOOK =
+      'book the first one, my name is Test User, 01001234567 2026-10-19 17:00';
+
+    async function bookedThread() {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      await drain(service, thread, 'apartments in New Cairo');
+      return { h, service, thread };
+    }
+
+    function expectConfirmed(
+      history: Awaited<ReturnType<ChatService['history']>>,
+    ) {
+      expect(history.map((m) => m.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+        'assistant',
+      ]);
+      expect(
+        history.filter((m) => m.text.startsWith('book the first one')),
+      ).toHaveLength(1);
+      const confirmation = history.at(-1);
+      expect(confirmation?.booking).toMatchObject({
+        propertySlug: 'alpha-apartment',
+        preferredDate: '2026-10-19',
+        preferredTime: '17:00',
+      });
+      expect(confirmation?.text).toContain('Your viewing is confirmed');
+    }
+
+    it('is kept when the client aborts as soon as the booking event arrives', async () => {
+      const { h, service, thread } = await bookedThread();
+      const abort = new AbortController();
+      const types: string[] = [];
+      for await (const event of service.run(thread, BOOK, abort.signal)) {
+        types.push(event.type);
+        if (event.type === 'booking') abort.abort();
+      }
+
+      expect(h.createBooking).toHaveBeenCalledOnce();
+      expectConfirmed(await service.history(thread));
+      expect((await stateOf(h, thread)).values.bookingDraft).toEqual({});
+      expect(types).not.toContain('error');
+    });
+
+    it('is kept, with the confirmation stored, when the abort cuts the turn before its update is saved', async () => {
+      const { h, service, thread } = await bookedThread();
+      const abort = new AbortController();
+      const create = h.createBooking.getMockImplementation();
+      h.createBooking.mockImplementation(async (input: never) => {
+        const result = await (create as (i: never) => Promise<unknown>)(input);
+        abort.abort();
+        return result;
+      });
+
+      const events = await drain(service, thread, BOOK, abort.signal);
+
+      // The client is gone, so nothing is sent back.
+      expect(events.map((e) => e.type)).not.toContain('error');
+      expect(h.createBooking).toHaveBeenCalledOnce();
+      expectConfirmed(await service.history(thread));
+      const state = await stateOf(h, thread);
+      expect(state.values.bookingDraft).toEqual({});
+      expect(state.values.focusSlug).toBe('alpha-apartment');
+    });
+
+    it('is kept when the caller stops reading right after the booking event', async () => {
+      const { h, service, thread } = await bookedThread();
+      const iterator = service.run(thread, BOOK, new AbortController().signal);
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done || next.value.type === 'booking') break;
+      }
+      await iterator.return(undefined);
+
+      expect(h.createBooking).toHaveBeenCalledOnce();
+      expectConfirmed(await service.history(thread));
+    });
+
+    it('still rolls back an abort that happens before any booking exists', async () => {
+      const { h, service, thread } = await bookedThread();
+      const before = await service.history(thread);
+      const abort = new AbortController();
+      h.model.extractBooking = (() => {
+        abort.abort();
+        return Promise.reject(new Error('aborted'));
+      }) as never;
+      await drain(service, thread, BOOK, abort.signal);
+      expect(h.createBooking).not.toHaveBeenCalled();
+      expect(await service.history(thread)).toEqual(before);
+    });
+  });
+
   it('rolls back when the caller stops reading mid-stream', async () => {
     const h = createGraphHarness();
     const service = serviceFor(h);
@@ -201,7 +297,7 @@ describe('ChatService history', () => {
     await drain(
       service,
       thread,
-      'book the first one, my name is Test User, 01001234567 2026-10-19',
+      'book the first one, my name is Test User, 01001234567 2026-10-19 17:00',
     );
 
     const history = await service.history(thread);

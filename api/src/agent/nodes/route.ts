@@ -1,6 +1,7 @@
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
 import type { Intent } from '../../llm/agent-model.js';
 import type { AgentGraphDeps } from '../agent-graph.types.js';
+import { detectLanguage } from '../language.js';
 import type { AgentStateType, AgentStateUpdate } from '../agent-state.js';
 import { callOptions, emit, recentTurns } from './node-support.js';
 
@@ -22,9 +23,10 @@ export function createRouteNode({ model }: AgentGraphDeps) {
     config: LangGraphRunnableConfig,
   ): Promise<AgentStateUpdate> => {
     emit(config, { type: 'status', stage: 'thinking' });
+    const turns = recentTurns(state.messages);
     const classification = await model.classify(
       {
-        messages: recentTurns(state.messages),
+        messages: turns,
         candidates: state.candidates.map(({ slug, title }) => ({
           slug,
           title,
@@ -36,7 +38,11 @@ export function createRouteNode({ model }: AgentGraphDeps) {
     );
     return {
       intent: classification.intent,
-      language: classification.language,
+      // Decided from the visitor's own letters, not by the (unreliable) classifier.
+      language: detectLanguage(
+        turns.findLast((turn) => turn.role === 'user')?.text ?? '',
+        state.language,
+      ),
       // Only a search restates the preferences; other turns keep the last ones.
       ...(classification.intent === 'search' && {
         semanticQuery: classification.semanticQuery,

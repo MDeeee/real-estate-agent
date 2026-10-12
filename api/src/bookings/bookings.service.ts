@@ -1,4 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { z } from 'zod';
+import { normaliseTime } from '../agent/booking-validation.js';
+import {
+  fromCalendarDay,
+  isCalendarDay,
+  toCalendarDay,
+} from '../common/calendar-day.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { BookingStatus } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -9,9 +16,36 @@ export interface CreateBookingInput {
   propertySlug: string;
   name: string;
   phone: string;
-  /** Calendar date, `YYYY-MM-DD`. */
+  /** Calendar date in the business time zone, `YYYY-MM-DD`. */
   preferredDate: string;
+  /** `HH:mm` (24 h, business time zone); `null`/omitted means any time. */
+  preferredTime?: string | null | undefined;
 }
+
+/**
+ * Validated again at the service boundary (the agent checks the visitor's
+ * words, this checks what is stored): the idempotency comparison below needs
+ * one spelling per time, so "9:00" is stored and compared as "09:00".
+ */
+export const createBookingInputSchema = z.object({
+  threadId: z.string().min(1),
+  propertySlug: z.string().min(1),
+  name: z.string().min(1),
+  phone: z.string().min(1),
+  preferredDate: z
+    .string()
+    .refine(isCalendarDay, 'preferredDate must be a calendar day (YYYY-MM-DD)'),
+  preferredTime: z
+    .string()
+    .transform((value) => normaliseTime(value) ?? value)
+    .pipe(
+      z
+        .string()
+        .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'preferredTime must be HH:mm'),
+    )
+    .nullish()
+    .transform((value) => value ?? null),
+});
 
 export interface BookingSummary {
   id: string;
@@ -20,7 +54,10 @@ export interface BookingSummary {
   propertyTitle: string;
   name: string;
   phone: string;
+  /** `YYYY-MM-DD`: a calendar day, not an instant. */
   preferredDate: string;
+  /** `HH:mm`, or `null` for any time. */
+  preferredTime: string | null;
   status: BookingStatus;
 }
 
@@ -50,6 +87,7 @@ const bookingSelect = {
   name: true,
   phone: true,
   preferredDate: true,
+  preferredTime: true,
   status: true,
   property: { select: { slug: true, title: true } },
 } satisfies Prisma.BookingSelect;
@@ -68,7 +106,8 @@ function toSummary(row: BookingRow): BookingSummary {
     propertyTitle: row.property.title,
     name: row.name,
     phone: row.phone,
-    preferredDate: row.preferredDate.toISOString().slice(0, 10),
+    preferredDate: toCalendarDay(row.preferredDate),
+    preferredTime: row.preferredTime,
     status: row.status,
   };
 }
@@ -87,18 +126,21 @@ export class BookingsService {
   /**
    * Books a viewing straight away (status CONFIRMED, no approval step).
    * Idempotent per thread, property and date: repeating the call returns the
-   * existing CONFIRMED booking, with the name and phone replaced by the new
-   * values. A CANCELLED booking is never resurrected: that slot was taken back
+   * existing CONFIRMED booking, with the name, phone and time replaced by the
+   * new values (the same day at another time updates the booking). A CANCELLED booking is never resurrected: that slot was taken back
    * by the agency, so this throws `BookingCancelledError`.
    */
-  async create(input: CreateBookingInput): Promise<CreatedBooking> {
+  async create(rawInput: CreateBookingInput): Promise<CreatedBooking> {
+    const input = createBookingInputSchema.parse(rawInput);
     const property = await this.prisma.property.findFirst({
       where: { ...buildPropertyWhere({}), slug: input.propertySlug },
       select: { id: true },
     });
     if (!property) throw new PropertyUnavailableError(input.propertySlug);
 
-    const preferredDate = new Date(`${input.preferredDate}T00:00:00.000Z`);
+    // A DATE column: midnight UTC is the calendar day itself, never shifted.
+    const preferredDate = fromCalendarDay(input.preferredDate);
+    const { preferredTime } = input;
     const key = {
       threadId_propertyId_preferredDate: {
         threadId: input.threadId,
@@ -107,7 +149,10 @@ export class BookingsService {
       },
     };
 
-    const existing = await this.refreshExisting(key, input);
+    const existing = await this.refreshExisting(key, {
+      ...input,
+      preferredTime,
+    });
     if (existing) return { booking: toSummary(existing), created: false };
 
     try {
@@ -118,6 +163,7 @@ export class BookingsService {
           name: input.name,
           phone: input.phone,
           preferredDate,
+          preferredTime,
           status: 'CONFIRMED',
         },
         select: bookingSelect,
@@ -125,7 +171,10 @@ export class BookingsService {
       return { booking: toSummary(row), created: true };
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
-      const raced = await this.refreshExisting(key, input);
+      const raced = await this.refreshExisting(key, {
+        ...input,
+        preferredTime,
+      });
       if (!raced) throw error;
       return { booking: toSummary(raced), created: false };
     }
@@ -133,7 +182,9 @@ export class BookingsService {
 
   private async refreshExisting(
     key: Prisma.BookingWhereUniqueInput,
-    input: Pick<CreateBookingInput, 'name' | 'phone'>,
+    input: Pick<CreateBookingInput, 'name' | 'phone'> & {
+      preferredTime: string | null;
+    },
   ): Promise<BookingRow | null> {
     const row = await this.prisma.booking.findUnique({
       where: key,
@@ -143,10 +194,20 @@ export class BookingsService {
     if (row.status === 'CANCELLED') {
       throw new BookingCancelledError(bookingReference(row.id));
     }
-    if (row.name === input.name && row.phone === input.phone) return row;
+    if (
+      row.name === input.name &&
+      row.phone === input.phone &&
+      row.preferredTime === input.preferredTime
+    ) {
+      return row;
+    }
     return this.prisma.booking.update({
       where: { id: row.id },
-      data: { name: input.name, phone: input.phone },
+      data: {
+        name: input.name,
+        phone: input.phone,
+        preferredTime: input.preferredTime,
+      },
       select: bookingSelect,
     });
   }

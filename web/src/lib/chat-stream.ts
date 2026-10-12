@@ -27,17 +27,25 @@ export async function readChatStream(
     }
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    buffer = buffer.replace(/\r\n/g, "\n");
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      flush(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf("\n\n");
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        flush(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
     }
-    if (done) break;
+  } catch (error) {
+    // An aborted request (Stop) rejects the read. Release the stream without
+    // letting its own cancellation become a second, unhandled rejection; the
+    // caller decides whether the error is a failure or a deliberate stop.
+    await reader.cancel().catch(() => undefined);
+    throw error;
   }
   if (buffer.trim()) flush(buffer);
 }

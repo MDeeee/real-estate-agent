@@ -5,12 +5,39 @@ import type {
   ModelCallOptions,
   TokenUsage,
 } from '../../llm/agent-model.js';
+import type { BookingSummary } from '../../bookings/bookings.service.js';
 import type { NodeEvent } from '../chat-events.js';
 import type { AssistantExtras } from '../agent-state.js';
 
 const RECENT_MESSAGES = 8;
 
 export const USAGE_KEY = 'usage';
+
+export const TURN_BOOKING_KEY = 'turnBooking';
+
+/**
+ * Filled by the book node the moment a booking exists, so the chat service
+ * knows about it even when the turn is cut off before the node's update (or
+ * its `booking` event) reaches the stream.
+ */
+export interface TurnBooking {
+  booking?: BookingSummary;
+  /** `false` when the visitor's earlier identical booking was reused. */
+  created?: boolean;
+}
+
+export function recordBooking(
+  config: LangGraphRunnableConfig,
+  booking: BookingSummary,
+  created: boolean,
+): void {
+  const turn = config.configurable?.[TURN_BOOKING_KEY] as
+    TurnBooking | undefined;
+  if (turn) {
+    turn.booking = booking;
+    turn.created = created;
+  }
+}
 
 export function emit(config: LangGraphRunnableConfig, event: NodeEvent): void {
   config.writer?.(event);

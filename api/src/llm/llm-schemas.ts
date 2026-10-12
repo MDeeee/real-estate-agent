@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { propertyFilterShape } from '../properties/property-filters.schema.js';
-import { INTENTS, LANGUAGES } from './agent-model.js';
+import { INTENTS } from './agent-model.js';
 
 export const classificationSchema = z.object({
   intent: z
@@ -8,9 +8,6 @@ export const classificationSchema = z.object({
     .describe(
       'search = looking for or refining a search for listings; details = asks about a specific listing already shown; book = wants to book a viewing, or is giving booking details (name, phone, date); smalltalk = greeting or thanks; off_topic = anything unrelated to real estate.',
     ),
-  language: z
-    .enum(LANGUAGES)
-    .describe('Language of the visitor\'s latest message: "ar" or "en".'),
   semanticQuery: z
     .string()
     .describe(
@@ -44,6 +41,22 @@ export const bookingExtractionSchema = z.object({
     .nullable()
     .describe(
       "Preferred viewing date as ISO YYYY-MM-DD, resolving relative dates against today's date. null if not given.",
+    ),
+  preferredTime: z
+    .string()
+    .nullable()
+    .describe(
+      'From the LATEST visitor message only: the exact viewing time of day as 24-hour HH:mm ("5 pm" => "17:00", "الساعة 4 العصر" => "16:00"). null if the latest message gives no exact time, including a vague one ("evening") or "any time".',
+    ),
+  anyTime: z
+    .boolean()
+    .describe(
+      'From the LATEST visitor message only: true only when it explicitly says any time suits them ("any time", "whenever", "في أي وقت", "مفيش مشكلة في الميعاد"); false otherwise.',
+    ),
+  timeVague: z
+    .boolean()
+    .describe(
+      'From the LATEST visitor message only: true when it names only a vague part of the day that is not one exact time ("evening", "after work", "after 6", "morning", "بعد الشغل"); false otherwise.',
     ),
 });
 

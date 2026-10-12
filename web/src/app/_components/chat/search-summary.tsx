@@ -5,6 +5,7 @@ import { buttonClass } from "@/components/ui/button";
 import {
   filterChips,
   filtersToHref,
+  hasActiveFilters,
   unsupportedFilterLabels,
 } from "@/lib/chat-filters";
 import type { SearchSummary as Summary } from "@/lib/chat-schemas";
@@ -41,16 +42,18 @@ export function SearchSummary({ summary }: { summary: Summary }) {
           Ranked by meaning: &ldquo;{summary.semanticQuery}&rdquo;
         </p>
       ) : null}
-      <button
-        type="button"
-        className={`${buttonClass("secondary")} mt-2 w-full text-xs`}
-        onClick={() => {
-          router.push(filtersToHref(summary.filters));
-          showSearch();
-        }}
-      >
-        Open these filters in the regular search
-      </button>
+      {hasActiveFilters(summary.filters) ? (
+        <button
+          type="button"
+          className={`${buttonClass("secondary")} mt-2 w-full text-xs`}
+          onClick={() => {
+            router.push(filtersToHref(summary.filters));
+            showSearch();
+          }}
+        >
+          Open these filters in the regular search
+        </button>
+      ) : null}
       {skipped.length > 0 ? (
         <p className="mt-1.5 text-muted">
           The regular form has no {skipped.join(", ").toLowerCase()} filter, so{" "}

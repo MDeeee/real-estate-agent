@@ -1,4 +1,5 @@
 import type { BookingItem, Page } from "@/lib/admin-schemas";
+import { formatBookingWhen } from "@/lib/booking-when";
 import { formatDateTime } from "@/lib/format";
 import { Pagination } from "./pagination";
 
@@ -26,7 +27,7 @@ export function BookingsTable({ data }: { data: Page<BookingItem> }) {
               <th scope="col" className="px-4 py-3 font-medium">Visitor</th>
               <th scope="col" className="px-4 py-3 font-medium">Phone</th>
               <th scope="col" className="px-4 py-3 font-medium">Property</th>
-              <th scope="col" className="px-4 py-3 font-medium">Preferred date</th>
+              <th scope="col" className="px-4 py-3 font-medium">Preferred viewing</th>
               <th scope="col" className="px-4 py-3 font-medium">Status</th>
               <th scope="col" className="px-4 py-3 font-medium">Booked</th>
             </tr>
@@ -47,7 +48,7 @@ export function BookingsTable({ data }: { data: Page<BookingItem> }) {
                   <p className="text-xs text-muted">{booking.property.slug}</p>
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
-                  {formatDateTime(booking.preferredDate)}
+                  {formatBookingWhen(booking.preferredDate, booking.preferredTime)}
                 </td>
                 <td className="px-4 py-3">
                   <span

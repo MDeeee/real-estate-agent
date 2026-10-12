@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { toCalendarDay } from '../common/calendar-day.js';
 import {
   type Page,
   type PaginationQuery,
@@ -11,7 +12,10 @@ export interface BookingListItem {
   id: string;
   name: string;
   phone: string;
-  preferredDate: Date;
+  /** `YYYY-MM-DD`: a calendar day, not an instant. */
+  preferredDate: string;
+  /** `HH:mm` in the business time zone; `null` means any time. */
+  preferredTime: string | null;
   status: BookingStatus;
   createdAt: Date;
   property: { slug: string; title: string };
@@ -31,6 +35,7 @@ export class BookingsAdminService {
           name: true,
           phone: true,
           preferredDate: true,
+          preferredTime: true,
           status: true,
           createdAt: true,
           property: { select: { slug: true, title: true } },
@@ -38,6 +43,14 @@ export class BookingsAdminService {
       }),
       this.prisma.booking.count(),
     ]);
-    return { items, total, page: query.page, pageSize: query.pageSize };
+    return {
+      items: items.map(({ preferredDate, ...rest }) => ({
+        ...rest,
+        preferredDate: toCalendarDay(preferredDate),
+      })),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 }

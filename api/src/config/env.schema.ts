@@ -11,6 +11,17 @@ const optionalUrl = optionalString.pipe(z.url().optional());
 
 export const MIN_INTERNAL_API_KEY_LENGTH = 32;
 
+export const DEFAULT_TIMEZONE = 'Africa/Cairo';
+
+function isTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -48,6 +59,12 @@ export const envSchema = z.object({
   // Budget for `POST /api/chat` across ALL visitors, per minute. Independent of
   // the client IP, so it caps LLM spend even if every visitor looks different.
   CHAT_GLOBAL_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
+
+  // The business time zone (IANA name). "Today", "tomorrow" and the viewing
+  // hours (09:00-21:00) of a booking are understood in it.
+  APP_TIMEZONE: optionalString
+    .transform((value) => value ?? DEFAULT_TIMEZONE)
+    .refine(isTimeZone, 'must be an IANA time zone such as Africa/Cairo'),
 
   LLM_PROVIDER: z.enum(['claude', 'openai-compatible']).default('claude'),
   ANTHROPIC_API_KEY: optionalString,

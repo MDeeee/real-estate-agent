@@ -1,6 +1,10 @@
 import type { BookingSummary } from '../bookings/bookings.service.js';
 import type { Language } from '../llm/agent-model.js';
-import { MAX_BOOKING_DAYS_AHEAD } from './booking-validation.js';
+import {
+  MAX_BOOKING_DAYS_AHEAD,
+  VIEWING_CLOSES,
+  VIEWING_OPENS,
+} from './booking-validation.js';
 
 type Localised = Record<Language, string>;
 
@@ -50,14 +54,18 @@ export function bookingCancelledReply(language: Language): string {
   });
 }
 
-export type BookingField = 'property' | 'name' | 'phone' | 'preferredDate';
+export type BookingField =
+  'property' | 'name' | 'phone' | 'preferredDate' | 'preferredTime';
 
 export type BookingProblem =
   | 'invalid_phone'
   | 'invalid_name'
   | 'invalid_date'
   | 'date_not_future'
-  | 'date_too_far';
+  | 'date_too_far'
+  | 'invalid_time'
+  | 'vague_time'
+  | 'time_outside_hours';
 
 const FIELD_LABEL: Record<BookingField, Localised> = {
   property: {
@@ -72,6 +80,11 @@ const FIELD_LABEL: Record<BookingField, Localised> = {
   preferredDate: {
     en: `your preferred viewing date (within the next ${MAX_BOOKING_DAYS_AHEAD} days)`,
     ar: `التاريخ المناسب للمعاينة (خلال ${MAX_BOOKING_DAYS_AHEAD} يوم من النهارده)`,
+  },
+  // Required: an exact time, or an explicit "any time".
+  preferredTime: {
+    en: `the time of day that suits you, between ${VIEWING_OPENS} and ${VIEWING_CLOSES} (e.g. 18:00), or say "any time"`,
+    ar: `الوقت المناسب ليك بين ${VIEWING_OPENS} و ${VIEWING_CLOSES} (مثال: 18:00)، أو قول "أي وقت"`,
   },
 };
 
@@ -96,6 +109,18 @@ const PROBLEM_TEXT: Record<BookingProblem, Localised> = {
     en: `Viewings can be booked up to ${MAX_BOOKING_DAYS_AHEAD} days ahead.`,
     ar: `الحجز متاح حتى ${MAX_BOOKING_DAYS_AHEAD} يوم قدّام.`,
   },
+  invalid_time: {
+    en: 'I could not read that time.',
+    ar: 'مقدرتش أفهم الوقت ده.',
+  },
+  vague_time: {
+    en: 'I need an exact time rather than a part of the day.',
+    ar: 'محتاج وقت محدد مش فترة من اليوم.',
+  },
+  time_outside_hours: {
+    en: `Viewings take place between ${VIEWING_OPENS} and ${VIEWING_CLOSES}.`,
+    ar: `المعاينات بتكون من ${VIEWING_OPENS} لحد ${VIEWING_CLOSES}.`,
+  },
 };
 
 function joinList(items: string[], language: Language): string {
@@ -112,6 +137,8 @@ export function bookingQuestion(
   title: string | undefined,
   missing: BookingField[],
   problems: BookingProblem[],
+  /** Titles of the listings of the latest search, offered when the listing is missing. */
+  choices: readonly string[] = [],
 ): string {
   const parts: string[] = problems.map((problem) =>
     pick(language, PROBLEM_TEXT[problem]),
@@ -120,6 +147,15 @@ export function bookingQuestion(
     missing.map((field) => pick(language, FIELD_LABEL[field])),
     language,
   );
+  if (missing.length === 1 && missing[0] === 'preferredTime') {
+    parts.push(
+      pick(language, {
+        en: `One last thing${title ? ` for "${title}"` : ''}: please tell me ${pick(language, FIELD_LABEL.preferredTime)}.`,
+        ar: `آخر حاجة${title ? ` لـ "${title}"` : ''}: قولّي ${pick(language, FIELD_LABEL.preferredTime)}.`,
+      }),
+    );
+    return parts.join(' ');
+  }
   if (title) {
     parts.push(
       pick(language, {
@@ -135,6 +171,15 @@ export function bookingQuestion(
       }),
     );
   }
+  if (missing.includes('property') && choices.length > 0) {
+    const list = choices.map((choice, index) => `${index + 1}. "${choice}"`);
+    parts.push(
+      pick(language, {
+        en: `Listings from your latest search: ${list.join('; ')}.`,
+        ar: `الوحدات من آخر بحث: ${list.join('؛ ')}.`,
+      }),
+    );
+  }
   return parts.join(' ');
 }
 
@@ -143,8 +188,17 @@ export function bookingConfirmation(
   booking: BookingSummary,
   created: boolean,
 ): string {
+  const when = booking.preferredTime
+    ? pick(language, {
+        en: `${booking.preferredDate} at ${booking.preferredTime}`,
+        ar: `${booking.preferredDate} الساعة ${booking.preferredTime}`,
+      })
+    : pick(language, {
+        en: `${booking.preferredDate} (any time)`,
+        ar: `${booking.preferredDate} (في أي وقت)`,
+      });
   return pick(language, {
-    en: `${created ? 'Your viewing is confirmed' : 'This viewing was already booked and is confirmed'}: "${booking.propertyTitle}" on ${booking.preferredDate} for ${booking.name}. Booking reference: ${booking.reference}. We will call you on ${booking.phone} if anything changes.`,
-    ar: `${created ? 'تم تأكيد معاينتك' : 'المعاينة دي كانت محجوزة بالفعل ومؤكدة'}: "${booking.propertyTitle}" يوم ${booking.preferredDate} باسم ${booking.name}. رقم الحجز: ${booking.reference}. هنتصل بك على ${booking.phone} لو حصل أي تغيير.`,
+    en: `${created ? 'Your viewing is confirmed' : 'This viewing was already booked and is confirmed'}: "${booking.propertyTitle}" on ${when} for ${booking.name}. Booking reference: ${booking.reference}. We will call you on ${booking.phone} if anything changes.`,
+    ar: `${created ? 'تم تأكيد معاينتك' : 'المعاينة دي كانت محجوزة بالفعل ومؤكدة'}: "${booking.propertyTitle}" يوم ${when} باسم ${booking.name}. رقم الحجز: ${booking.reference}. هنتصل بك على ${booking.phone} لو حصل أي تغيير.`,
   });
 }

@@ -681,7 +681,8 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
             propertyId: property.id,
             name,
             phone: '+20 100 000 0000',
-            preferredDate: new Date('2026-12-01T10:00:00Z'),
+            preferredDate: new Date('2026-12-01T00:00:00Z'),
+            preferredTime: name === 'Newer' ? '17:00' : null,
             createdAt: new Date(createdAt),
           },
         });
@@ -689,13 +690,25 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
 
       const response = await request('/bookings?pageSize=10');
       const body = (await response.json()) as {
-        items: { name: string; property: { title: string; slug: string } }[];
+        items: {
+          name: string;
+          preferredDate: string;
+          preferredTime: string | null;
+          property: { title: string; slug: string };
+        }[];
         total: number;
       };
 
       expect(response.status).toBe(200);
       expect(body.total).toBe(2);
       expect(body.items.map((item) => item.name)).toEqual(['Newer', 'Older']);
+      // A calendar day and a time of day, never an instant.
+      expect(
+        body.items.map((item) => [item.preferredDate, item.preferredTime]),
+      ).toEqual([
+        ['2026-12-01', '17:00'],
+        ['2026-12-01', null],
+      ]);
       expect(body.items[0]?.property).toEqual({
         slug: 'zamalek-test-flat',
         title: 'Test flat in Zamalek',

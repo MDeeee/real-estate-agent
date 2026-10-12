@@ -1,7 +1,11 @@
 import { toJsonSchema } from '@langchain/core/utils/json_schema';
 import { describe, expect, it } from 'vitest';
 import { propertyFilterShape } from '../properties/property-filters.schema.js';
-import { bookingExtractionSchema, llmFilterSchema } from './llm-schemas.js';
+import {
+  bookingExtractionSchema,
+  classificationSchema,
+  llmFilterSchema,
+} from './llm-schemas.js';
 
 type ObjectSchema = {
   properties: Record<string, { anyOf: { type: string; enum?: string[] }[] }>;
@@ -56,10 +60,50 @@ describe('bookingExtractionSchema', () => {
       bookingExtractionSchema,
     ) as unknown as ObjectSchema;
     expect([...json.required].sort()).toEqual([
+      'anyTime',
       'name',
       'phone',
       'preferredDate',
+      'preferredTime',
       'propertyRef',
+      'timeVague',
+    ]);
+  });
+
+  it('parses a time, and an explicit "any time"', () => {
+    const base = {
+      propertyRef: null,
+      name: null,
+      phone: null,
+      preferredDate: '2026-10-19',
+    };
+    expect(
+      bookingExtractionSchema.parse({
+        ...base,
+        preferredTime: '17:00',
+        anyTime: false,
+        timeVague: false,
+      }),
+    ).toMatchObject({ preferredTime: '17:00', anyTime: false });
+    expect(
+      bookingExtractionSchema.parse({
+        ...base,
+        preferredTime: null,
+        anyTime: true,
+        timeVague: false,
+      }),
+    ).toMatchObject({ preferredTime: null, anyTime: true });
+  });
+});
+
+describe('classificationSchema', () => {
+  it('no longer asks the model for the reply language', () => {
+    const json = toJsonSchema(classificationSchema) as unknown as ObjectSchema;
+    expect(Object.keys(json.properties)).not.toContain('language');
+    expect([...json.required].sort()).toEqual([
+      'intent',
+      'propertyRef',
+      'semanticQuery',
     ]);
   });
 });
