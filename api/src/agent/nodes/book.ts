@@ -220,14 +220,10 @@ export function createBookNode(deps: AgentGraphDeps) {
         preferredTime: draft.preferredTime ?? null,
       });
       recordBooking(config, booking, created);
-      emit(config, { type: 'booking', booking });
+      const text = bookingConfirmation(state.language, booking, created);
+      emit(config, { type: 'booking', booking, text });
       return {
-        messages: [
-          assistantMessage(
-            bookingConfirmation(state.language, booking, created),
-            { booking },
-          ),
-        ],
+        messages: [assistantMessage(text, { booking })],
         bookingDraft: {},
         focusSlug: booking.propertySlug,
         citedSlugs: [],

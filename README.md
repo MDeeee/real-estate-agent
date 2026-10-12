@@ -2,9 +2,7 @@
 
 An AI assistant for the Egyptian property market, in Arabic and English. A visitor can chat with a LangGraph agent or use a regular filter search, side by side, over the same listings, so the two can be compared directly. An admin uploads listings as markdown files: each file's frontmatter becomes a structured record for the filter search, and its body is chunked and embedded into pgvector for semantic retrieval. The agent answers only from retrieved listings, cites them, and can book a viewing.
 
-<!-- TODO(M4): add a demo GIF and screenshots to docs/media/ and embed them here:
-     landing page (chat next to filter search), admin upload, booking flow.
-     Do not commit placeholder images. -->
+<!-- Media: docs/media/demo-chat.gif, landing.png, admin.png, chat-arabic.png (captured by the owner) -->
 
 ## Features
 
@@ -139,10 +137,12 @@ The chat needs an LLM. The app boots without one (the filter search and admin ke
 LLM_PROVIDER=openai-compatible
 OPENAI_COMPAT_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 OPENAI_COMPAT_API_KEY=<your key>
-OPENAI_COMPAT_MODEL=gemini-3.8-flash
+OPENAI_COMPAT_MODEL=gemini-3.5-flash-lite
 ```
 
 3. Restart `pnpm dev`. The web app needs `INTERNAL_API_KEY` set to the same value as the API and `TRUSTED_PROXY_HOPS` set to your proxy count (see `.env.example` and Deployment notes) so chat rate limits count each visitor, not the web server.
+
+`gemini-3.5-flash-lite` is the default: it recorded the committed eval baseline and had enough free-tier headroom for two full eval runs plus a browser pass (over 100 calls in one day). The free tier caps requests per day for each model (20 per day for `gemini-3.5-flash` when this was tested; the larger `3.7`/`3.8` flash models hung or returned 503 under load), so to switch model change `OPENAI_COMPAT_MODEL` and restart; the eval gate refuses a model other than the baseline's until you re-record it. Free-tier latency varies from about 1 to 10 seconds per model call, and a search turn (several calls) can take 30 to 50 seconds, so one chat turn is allowed `CHAT_TURN_TIMEOUT_MS` (default `90000`) before it is rolled back.
 
 Fallback if Gemini is rate limited: Groq. Same four lines with `OPENAI_COMPAT_BASE_URL=https://api.groq.com/openai/v1`, a key from <https://console.groq.com/keys> and a Groq model name.
 
@@ -154,7 +154,7 @@ LangSmith tracing needs no code: set `LANGSMITH_TRACING=true`, `LANGSMITH_API_KE
 
 ### Limits
 
-`POST /api/chat` is limited to `CHAT_THROTTLE_LIMIT` (default 10) requests per `THROTTLE_TTL_SECONDS` per client IP, to `CHAT_GLOBAL_LIMIT_PER_MINUTE` (default 30) requests per minute across all visitors, messages to 1000 characters, request bodies to 16 KB and each turn to 60 seconds. Over a limit the API answers `429` with a friendly JSON message and a `Retry-After` header (seconds), which the web route passes through.
+`POST /api/chat` is limited to `CHAT_THROTTLE_LIMIT` (default 10) requests per `THROTTLE_TTL_SECONDS` per client IP, to `CHAT_GLOBAL_LIMIT_PER_MINUTE` (default 30) requests per minute across all visitors, messages to 1000 characters, request bodies to 16 KB and each turn to `CHAT_TURN_TIMEOUT_MS` (default 90 seconds). Over a limit the API answers `429` with a friendly JSON message and a `Retry-After` header (seconds), which the web route passes through.
 
 A turn that fails, times out or is stopped by the visitor is rolled back: the stored conversation looks as if the message had never been sent, so a retry never duplicates it. Stored history is capped at the last 20 messages per conversation.
 
@@ -218,7 +218,7 @@ pnpm test        # api (Vitest) and web (node:test)
 
 ## Evals
 
-Unit tests prove the plumbing; the eval suite measures the agent itself. `pnpm eval` runs 13 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 3 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse"). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
+Unit tests prove the plumbing; the eval suite measures the agent itself. `pnpm eval` runs 14 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 4 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse", and a fresh request after a Sheikh Zayed search that must not inherit the city). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
 
 ```bash
 pnpm seed                        # listings must be indexed first
@@ -266,13 +266,13 @@ Without an LLM configured, `pnpm eval` prints `Eval skipped: no LLM configured (
 | Secret | `OPENAI_COMPAT_API_KEY` | For Gemini, Groq or any OpenAI-compatible provider | |
 | Secret | `ANTHROPIC_API_KEY` | For Claude | Also set variable `LLM_PROVIDER=claude` |
 | Variable | `LLM_PROVIDER` | No | Default `openai-compatible` |
-| Variable | `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_MODEL` | No | Default: Gemini (`gemini-3.8-flash`) |
+| Variable | `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_MODEL` | No | Default: Gemini (`gemini-3.5-flash-lite`, the model of the committed baseline; the gate refuses a different model) |
 | Variable | `CLAUDE_MODEL`, `LLM_STRUCTURED_METHOD` | No | |
 | Variable | `EVAL_DELAY_MS`, `EVAL_TOLERANCE`, `EVAL_RETRY_WAIT_MS` | No | |
 
 **Recording the baseline in CI.** The runner cannot commit, so run the workflow with the `update_baseline` input ticked. It runs `pnpm eval --update-baseline` and uploads `api/evals/baseline.json` as the `eval-baseline` artifact. Download it and commit it as `api/evals/baseline.json`. Until a baseline is committed, every normal (gated) run in CI fails with `No baseline yet`.
 
-> Status: the eval suite and gate are implemented and unit-tested; the first real run, and so `baseline.json`, is pending an LLM key.
+> Status: `api/evals/baseline.json` was recorded on 2026-10-12 with `gemini-3.5-flash-lite` (all seven quality metrics at 100 percent on the 13 cases). Re-record it when you change the model.
 
 ## Deployment notes
 
@@ -306,7 +306,7 @@ To create a new migration run `pnpm --filter api db:migrate:create`. Prisma cann
 ├── web/                    Next.js app
 │   └── src/                app routes, components, lib
 ├── samples/properties/     20 synthetic listings (.md)
-├── docs/                   PLAN.md, adr/, agents/, media/ (screenshots, planned)
+├── docs/                   PLAN.md, adr/, agents/, media/ (demo GIF and screenshots, added by the owner)
 ├── .github/workflows/      ci.yml, eval.yml (manual)
 └── docker-compose.yml      Postgres 17 + pgvector
 ```

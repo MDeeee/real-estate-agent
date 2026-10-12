@@ -12,6 +12,14 @@ export const INTENTS = [
 ] as const;
 export type Intent = (typeof INTENTS)[number];
 
+/**
+ * `new`: the visitor's message is a self-contained request that starts a search
+ * from scratch. `refine`: it modifies the previous search ("cheaper", "in
+ * Zayed instead", "with a garden").
+ */
+export const SEARCH_MODES = ['new', 'refine'] as const;
+export type SearchMode = (typeof SEARCH_MODES)[number];
+
 export const LANGUAGES = ['ar', 'en'] as const;
 export type Language = (typeof LANGUAGES)[number];
 
@@ -57,6 +65,8 @@ export interface ClassifyInput {
 
 export interface Classification {
   intent: Intent;
+  /** Meaningful for `search` only. */
+  searchMode: SearchMode;
   /**
    * The FULL current qualitative preferences to rank by meaning (previous ones
    * carried over unless the visitor replaced or dropped them); empty when none.
@@ -68,7 +78,11 @@ export interface Classification {
 
 export interface ExtractFiltersInput {
   messages: ConversationTurn[];
+  searchMode: SearchMode;
+  /** The previous search's filters; always empty for a `new` search. */
   previousFilters: PropertyFilters;
+  /** The previous qualitative preferences; always empty for a `new` search. */
+  previousSemanticQuery: string;
   today: string;
   facets: { cities: string[]; compounds: string[] };
   /** Validation errors of the previous attempt, when this is the retry. */

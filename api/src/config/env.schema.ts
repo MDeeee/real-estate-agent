@@ -60,6 +60,10 @@ export const envSchema = z.object({
   // the client IP, so it caps LLM spend even if every visitor looks different.
   CHAT_GLOBAL_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
 
+  // Upper bound of one chat turn (a free-tier model can need 30-50 s for a
+  // search turn). The turn is rolled back when it is exceeded.
+  CHAT_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+
   // The business time zone (IANA name). "Today", "tomorrow" and the viewing
   // hours (09:00-21:00) of a booking are understood in it.
   APP_TIMEZONE: optionalString

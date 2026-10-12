@@ -60,7 +60,7 @@ export function ChatPanel() {
       ) : null}
       <Composer
         busy={busy}
-        disabled={restoring || resetting}
+        disabled={restoring}
         onSend={(text) => void send(text)}
         onStop={stop}
       />

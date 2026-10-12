@@ -45,6 +45,7 @@ export function createRouteNode({ model }: AgentGraphDeps) {
       ),
       // Only a search restates the preferences; other turns keep the last ones.
       ...(classification.intent === 'search' && {
+        searchMode: classification.searchMode,
         semanticQuery: classification.semanticQuery,
       }),
       propertyRef: classification.propertyRef ?? null,

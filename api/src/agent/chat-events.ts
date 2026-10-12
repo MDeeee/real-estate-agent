@@ -10,7 +10,12 @@ export type ChatEvent =
   | { type: 'filters'; filters: PropertyFilters; semanticQuery: string }
   | { type: 'properties'; items: ChatCard[] }
   | { type: 'token'; text: string }
-  | { type: 'booking'; booking: BookingSummary }
+  | {
+      type: 'booking';
+      booking: BookingSummary;
+      /** The localized confirmation, so it shows even when a Stop lands before `final`. */
+      text: string;
+    }
   | {
       type: 'final';
       text: string;

@@ -90,6 +90,7 @@ export class LangChainAgentModel implements AgentModel {
     );
     return {
       intent: result.intent,
+      searchMode: result.searchMode,
       semanticQuery: result.semanticQuery.trim(),
       propertyRef: result.propertyRef?.trim() || undefined,
     };

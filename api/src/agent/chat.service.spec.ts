@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Env } from '../config/env.schema.js';
 import { createGraphHarness } from '../testing/chat-fixtures.js';
 import type { AgentGraphService } from './agent-graph.service.js';
 import type { ChatEvent } from './chat-events.js';
@@ -9,11 +11,14 @@ import { threadLogId } from './pii.js';
 
 type Harness = ReturnType<typeof createGraphHarness>;
 
-function serviceFor(h: Harness) {
-  return new ChatService({
-    graph: h.graph,
-    checkpointer: h.checkpointer,
-  } as unknown as AgentGraphService);
+function serviceFor(h: Harness, turnTimeoutMs = 90_000) {
+  return new ChatService(
+    {
+      graph: h.graph,
+      checkpointer: h.checkpointer,
+    } as unknown as AgentGraphService,
+    { get: () => turnTimeoutMs } as unknown as ConfigService<Env, true>,
+  );
 }
 
 async function drain(
@@ -94,6 +99,26 @@ describe('ChatService turn rollback', () => {
     expect(history.filter((m) => m.text === 'something cheaper')).toHaveLength(
       1,
     );
+  });
+
+  it('times out a turn after the configured CHAT_TURN_TIMEOUT_MS and rolls it back', async () => {
+    const h = createGraphHarness();
+    const slow = serviceFor(h, 50);
+    const thread = randomUUID();
+    h.model.classify = ((_input: unknown, options?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () =>
+          reject(new Error('aborted')),
+        );
+      })) as never;
+
+    const events = await drain(slow, thread, 'apartments in New Cairo');
+
+    expect(events.at(-2)).toEqual({
+      type: 'error',
+      message: 'The assistant took too long to answer. Please try again.',
+    });
+    expect(await slow.history(thread)).toEqual([]);
   });
 
   it('removes a conversation whose very first turn failed', async () => {

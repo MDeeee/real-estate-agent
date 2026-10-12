@@ -1,6 +1,11 @@
 import { Annotation, MessagesAnnotation } from '@langchain/langgraph';
 import type { BookingSummary } from '../bookings/bookings.service.js';
-import type { BookingDraft, Intent, Language } from '../llm/agent-model.js';
+import type {
+  BookingDraft,
+  Intent,
+  Language,
+  SearchMode,
+} from '../llm/agent-model.js';
 import type { PropertyFilters } from '../properties/property-filters.schema.js';
 import type { ChatCard } from './chat-card.js';
 
@@ -35,6 +40,7 @@ function lastValue<T>(initial: () => T) {
 export function initialValues() {
   return {
     intent: null as Intent | null,
+    searchMode: 'new' as SearchMode,
     language: 'en' as Language,
     filters: {} as PropertyFilters,
     semanticQuery: '',
@@ -51,6 +57,7 @@ export type RestorableKey = keyof ReturnType<typeof initialValues>;
 export const AgentState = Annotation.Root({
   ...MessagesAnnotation.spec,
   intent: lastValue<Intent | null>(() => initialValues().intent),
+  searchMode: lastValue<SearchMode>(() => initialValues().searchMode),
   language: lastValue<Language>(() => initialValues().language),
   filters: lastValue<PropertyFilters>(() => initialValues().filters),
   semanticQuery: lastValue<string>(() => initialValues().semanticQuery),

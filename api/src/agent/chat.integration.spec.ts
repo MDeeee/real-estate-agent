@@ -231,6 +231,7 @@ describe.skipIf(!databaseUrl)('chat API (integration)', () => {
     model.classify = () =>
       Promise.resolve({
         intent: 'search',
+        searchMode: 'refine',
         semanticQuery: 'quiet street with a garden',
         propertyRef: undefined,
       });
@@ -647,6 +648,7 @@ describe.skipIf(!databaseUrl)('chat API (integration)', () => {
       await gate;
       return {
         intent: 'smalltalk',
+        searchMode: 'refine',
         semanticQuery: '',
         propertyRef: undefined,
       };

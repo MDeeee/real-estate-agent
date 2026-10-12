@@ -61,7 +61,11 @@ export class FakeAgentModel implements AgentModel {
     const ordinal = ORDINALS.findIndex((word) => text.includes(word));
     const propertyRef =
       ordinal >= 0 ? `the ${ORDINALS[ordinal]} one` : undefined;
-    const base = { semanticQuery: '', propertyRef } as const;
+    const base = {
+      searchMode: 'refine',
+      semanticQuery: '',
+      propertyRef,
+    } as const;
 
     if (/weather|joke|football|capital of/.test(text)) {
       return Promise.resolve({ ...base, intent: 'off_topic' });
@@ -87,18 +91,31 @@ export class FakeAgentModel implements AgentModel {
     if (/tell me more|details|payment plan/.test(text)) {
       return Promise.resolve({ ...base, intent: 'details' });
     }
+    // Like the real router: a message that only modifies the earlier search is
+    // a refinement; one with its own location, type or listing starts afresh.
+    const refines =
+      /cheaper|instead|what about|forget the view|^(with|and|also)/.test(
+        text,
+      );
+    const standsAlone =
+      /new cairo|sheikh zayed|الشيخ زايد|apartment|villa|شقة|فيلا|rent|buy|sale/.test(
+        text,
+      );
+    const searchMode = !refines && standsAlone ? 'new' : 'refine';
     // Like the real model: state the FULL current preferences, carrying the
-    // previous ones over unless the visitor drops them.
+    // previous ones over (refine only) unless the visitor drops them.
+    const carried = searchMode === 'refine' ? input.previousSemanticQuery : '';
     const wanted = /garden view/.test(text)
       ? 'garden view'
       : /quiet/.test(text)
         ? 'quiet street'
         : /forget the view/.test(text)
           ? ''
-          : input.previousSemanticQuery;
+          : carried;
     return Promise.resolve({
       ...base,
       intent: 'search',
+      searchMode,
       semanticQuery: wanted,
     });
   }

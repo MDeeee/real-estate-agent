@@ -9,7 +9,9 @@ import {
   type ChatEvent,
   type SearchSummary,
 } from "@/lib/chat-schemas";
+import { applyEventToMessage } from "@/lib/chat-message-events";
 import { postChat } from "@/lib/chat-request";
+import { ResetGate } from "@/lib/chat-reset";
 import { settleStopped } from "@/lib/chat-stop";
 import { readChatStream } from "@/lib/chat-stream";
 
@@ -99,6 +101,9 @@ export function useChat() {
   const [notice, setNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
+  const gateRef = useRef(new ResetGate());
+  /** Bumped by "New chat": a request of an earlier conversation stops touching the screen. */
+  const generationRef = useRef(0);
 
   // Leaving the page ends a running request quietly.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -149,40 +154,11 @@ export function useChat() {
 
   const applyEvent = useCallback(
     (event: ChatEvent) => {
-      switch (event.type) {
-        case "status":
-          setStage(event.stage);
-          break;
-        case "filters":
-          patchLast((m) => ({
-            ...m,
-            search: { filters: event.filters, semanticQuery: event.semanticQuery },
-          }));
-          break;
-        case "properties":
-          patchLast((m) => ({ ...m, properties: event.items }));
-          break;
-        case "token":
-          setStage(null);
-          patchLast((m) => ({ ...m, text: m.text + event.text }));
-          break;
-        case "booking":
-          patchLast((m) => ({ ...m, booking: event.booking }));
-          break;
-        case "final":
-          patchLast((m) => ({
-            ...m,
-            text: event.text,
-            citedSlugs: event.citedSlugs,
-            streaming: false,
-          }));
-          break;
-        case "error":
-          patchLast((m) => ({ ...m, error: event.message, streaming: false }));
-          break;
-        case "done":
-          break;
+      if (event.type === "status") setStage(event.stage);
+      else if (event.type === "token" || event.type === "booking") {
+        setStage(null);
       }
+      patchLast((m) => applyEventToMessage(m, event));
     },
     [patchLast],
   );
@@ -192,46 +168,66 @@ export function useChat() {
       const text = rawText.trim();
       if (!text || busyRef.current) return;
 
+      const generation = generationRef.current;
+      const current = () => generation === generationRef.current;
+      const userId = nextId();
+      const replyId = nextId();
       busyRef.current = true;
       setBusy(true);
       setNotice(null);
       setStage("thinking");
-      setMessages((current) => [
-        ...current,
-        { id: nextId(), role: "user", text },
-        { id: nextId(), role: "assistant", text: "", streaming: true },
+      setMessages((existing) => [
+        ...existing,
+        { id: userId, role: "user", text },
+        { id: replyId, role: "assistant", text: "", streaming: true },
       ]);
 
       const controller = new AbortController();
       abortRef.current = controller;
       try {
+        // A "New chat" still rotating the conversation cookie: wait for it, so
+        // this message starts the new conversation, not the old one.
+        if (!(await gateRef.current.whenReady())) {
+          setMessages((existing) =>
+            existing.filter(({ id }) => id !== userId && id !== replyId),
+          );
+          return;
+        }
         const response = await postChat(text, controller.signal);
         if (!response.ok || !response.body) {
           const error = await errorFor(response, text);
-          patchLast((m) => ({ ...m, error, streaming: false }));
+          if (current()) patchLast((m) => ({ ...m, error, streaming: false }));
           return;
         }
-        await readChatStream(response.body, applyEvent);
-        patchLast((m) =>
-          m.streaming
-            ? { ...m, error: m.error ?? GENERIC_ERROR, streaming: false }
-            : m,
-        );
+        await readChatStream(response.body, (event) => {
+          if (current()) applyEvent(event);
+        });
+        if (current()) {
+          patchLast((m) =>
+            m.streaming
+              ? { ...m, error: m.error ?? GENERIC_ERROR, streaming: false }
+              : m,
+          );
+        }
       } catch {
         // Stop (or a new chat) aborts the request on purpose: whatever the
         // rejection looks like (AbortError, a stream error, ...), it is not
         // a failure and is never reported as one.
+        if (!current()) return;
         if (controller.signal.aborted) {
-          setMessages((current) => settleStopped(current));
+          setMessages((existing) => settleStopped(existing));
         } else {
           patchLast((m) => ({ ...m, error: GENERIC_ERROR, streaming: false }));
         }
       } finally {
-        // Send stays disabled (busy) until the response has really closed.
-        abortRef.current = null;
-        busyRef.current = false;
-        setBusy(false);
-        setStage(null);
+        // Send stays disabled (busy) until the response has really closed;
+        // "New chat" has already released it for the new conversation.
+        if (current()) {
+          abortRef.current = null;
+          busyRef.current = false;
+          setBusy(false);
+          setStage(null);
+        }
       }
     },
     [applyEvent, patchLast],
@@ -251,21 +247,30 @@ export function useChat() {
   }, [messages, send]);
 
   const newChat = useCallback(async () => {
+    // Optimistic: the screen is empty and the composer usable at once. A
+    // message sent meanwhile waits for the reset (see `send`).
+    const previous = messages;
+    generationRef.current += 1;
     abortRef.current?.abort();
-    setResetting(true);
+    abortRef.current = null;
+    busyRef.current = false;
+    setBusy(false);
+    setMessages([]);
+    setStage(null);
     setNotice(null);
-    try {
+    setResetting(true);
+    const ok = await gateRef.current.begin(async () => {
       // The server rotates the httpOnly conversation cookie.
       const response = await fetch("/api/chat/reset", { method: "POST" });
-      if (!response.ok) throw new Error("reset failed");
-      setMessages([]);
-      setStage(null);
-    } catch {
+      return response.ok;
+    });
+    setResetting(false);
+    if (!ok) {
+      // Still the old conversation on the server: show it again.
+      setMessages((existing) => [...previous, ...existing]);
       setNotice(NEW_CHAT_ERROR);
-    } finally {
-      setResetting(false);
     }
-  }, []);
+  }, [messages]);
 
   return {
     messages,

@@ -161,6 +161,33 @@
     }
   },
   {
+    "id": "multi-new-search-no-carry-over",
+    "description": "Multi-turn: a self-contained request after a Sheikh Zayed search must not inherit the city",
+    "turns": [
+      "Show me properties for sale in Sheikh Zayed.",
+      "3 bedroom apartment for sale under 12 million EGP."
+    ],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "type": "apartment",
+        "listing": "SALE",
+        "bedroomsMin": 3,
+        "priceMax": 12000000
+      },
+      "anyOfSlugs": [
+        "maadi-apartment-sale",
+        "new-cairo-fifth-settlement-apartment-sale",
+        "october-apartment-sale"
+      ],
+      "noneOfSlugs": [
+        "zamalek-apartment-sale",
+        "sheikh-zayed-duplex-sale",
+        "sheikh-zayed-townhouse-sale"
+      ]
+    }
+  },
+  {
     "id": "multi-second-one-details",
     "description": "Multi-turn: 'the second one' must resolve against the listings just shown",
     "turns": [

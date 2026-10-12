@@ -7,6 +7,7 @@ import {
 } from '../bookings/bookings.service.js';
 import { classifyMessages } from '../llm/prompts.js';
 import { createGraphHarness, makeCard } from '../testing/chat-fixtures.js';
+import { changesSearchIdentity } from './nodes/extract-filters.js';
 import { MAX_STORED_MESSAGES, trimNode } from './nodes/trim.js';
 
 describe('agent graph', () => {
@@ -160,6 +161,7 @@ describe('agent graph', () => {
     h.model.classify = () =>
       Promise.resolve({
         intent: 'smalltalk',
+        searchMode: 'refine',
         semanticQuery: '',
         propertyRef: undefined,
       });
@@ -211,6 +213,7 @@ describe('agent graph', () => {
       h.model.classify = () =>
         Promise.resolve({
           intent: 'book',
+          searchMode: 'refine',
           semanticQuery: '',
           propertyRef: undefined,
         });
@@ -301,7 +304,11 @@ describe('agent graph', () => {
       expect(fourth.state.bookingDraft).toEqual({});
       expect(fourth.text).toContain('00000001');
       expect(fourth.text).toContain('2026-10-19 at 17:00');
-      expect(fourth.events.find((e) => e.type === 'booking')).toBeDefined();
+      const bookingEvent = fourth.events.find((e) => e.type === 'booking');
+      expect(bookingEvent).toBeDefined();
+      // The event carries the very confirmation the turn stores, so the web
+      // can show it even when Stop lands before `final`.
+      expect(bookingEvent).toMatchObject({ text: fourth.text });
     });
 
     it('books straight away when the time comes with the other details', async () => {
@@ -756,6 +763,211 @@ describe('agent graph', () => {
         'Previous qualitative preferences: garden view',
       );
       expect(system?.content).toContain('FULL current qualitative preferences');
+    });
+  });
+
+  describe('new search or refinement', () => {
+    it('starts a self-contained request from scratch: nothing is carried over', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(
+        thread,
+        '3 bedroom apartment in Sheikh Zayed for rent under 7 million',
+      );
+
+      const { state } = await h.turn(
+        thread,
+        'apartment for sale under 12 million',
+      );
+
+      expect(state.searchMode).toBe('new');
+      const call = h.model.filterCalls.at(-1);
+      expect(call?.searchMode).toBe('new');
+      expect(call?.previousFilters).toEqual({});
+      expect(call?.previousSemanticQuery).toBe('');
+      expect(state.filters).toEqual({
+        type: 'apartment',
+        listing: 'SALE',
+        priceMax: 12_000_000,
+      });
+    });
+
+    it('shows a new search only the latest request', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, '3 bedroom apartment in Sheikh Zayed');
+      await h.turn(thread, 'apartment for sale under 12 million');
+
+      expect(h.model.filterCalls.at(-1)?.messages).toEqual([
+        { role: 'user', text: 'apartment for sale under 12 million' },
+      ]);
+    });
+
+    it('gives the previous filters and preferences to a refinement only', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment with a garden view in New Cairo');
+      const { state } = await h.turn(thread, 'something cheaper');
+
+      expect(state.searchMode).toBe('refine');
+      const call = h.model.filterCalls.at(-1);
+      expect(call?.searchMode).toBe('refine');
+      expect(call?.previousFilters).toMatchObject({ city: 'New Cairo' });
+      expect(call?.previousSemanticQuery).toBe('garden view');
+      expect(state.semanticQuery).toBe('garden view');
+    });
+
+    it('drops the old preferences when the router calls the request new', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment with a garden view in New Cairo');
+      const { state } = await h.turn(thread, 'apartment for rent');
+
+      expect(state.searchMode).toBe('new');
+      expect(state.semanticQuery).toBe('');
+    });
+
+    function routerAlwaysSaysRefine(h: ReturnType<typeof createGraphHarness>) {
+      const classify = h.model.classify.bind(h.model);
+      h.model.classify = async (input) => ({
+        ...(await classify(input)),
+        searchMode: 'refine',
+      });
+    }
+
+    it('rent after a sale search is a new search, even when the router said refine', async () => {
+      const h = createGraphHarness();
+      routerAlwaysSaysRefine(h);
+      const thread = randomUUID();
+      await h.turn(
+        thread,
+        '3 bedroom apartment in New Cairo to buy under 7 million',
+      );
+      const before = h.model.filterCalls.length;
+
+      const { state } = await h.turn(thread, 'apartment for rent');
+
+      expect(h.model.filterCalls).toHaveLength(before + 2);
+      expect(h.model.filterCalls.at(-2)?.searchMode).toBe('refine');
+      expect(h.model.filterCalls.at(-1)).toMatchObject({
+        searchMode: 'new',
+        previousFilters: {},
+      });
+      expect(state.filters).toEqual({ type: 'apartment', listing: 'RENT' });
+    });
+
+    it('villa after an apartment search is a new search, even when the router said refine', async () => {
+      const h = createGraphHarness();
+      routerAlwaysSaysRefine(h);
+      const thread = randomUUID();
+      await h.turn(thread, '3 bedroom apartment in New Cairo under 7 million');
+      const before = h.model.filterCalls.length;
+      // First the refinement that wrongly swaps the type, then the clean re-extraction.
+      h.model.filterQueue.push(
+        {
+          city: 'New Cairo',
+          type: 'villa',
+          bedroomsMin: 3,
+          priceMax: 7_000_000,
+        },
+        { city: 'New Cairo', type: 'villa' },
+      );
+
+      const { state } = await h.turn(thread, 'villa in New Cairo');
+
+      expect(h.model.filterCalls).toHaveLength(before + 2);
+      expect(h.model.filterCalls.at(-1)).toMatchObject({
+        searchMode: 'new',
+        previousFilters: {},
+      });
+      expect(state.filters).toEqual({ city: 'New Cairo', type: 'villa' });
+    });
+
+    it('in Zayed instead keeps priceMax and bedroomsMin', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, '3 bedroom apartment in New Cairo under 7 million');
+      const before = h.model.filterCalls.length;
+
+      const { state } = await h.turn(thread, 'in Sheikh Zayed instead');
+
+      expect(state.searchMode).toBe('refine');
+      expect(h.model.filterCalls).toHaveLength(before + 1);
+      expect(state.filters).toMatchObject({
+        city: 'Sheikh Zayed',
+        type: 'apartment',
+        bedroomsMin: 3,
+        priceMax: 7_000_000,
+      });
+    });
+
+    it('keeps the refined filters when the router said refine and the identity is unchanged', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, '3 bedroom apartment in New Cairo under 7 million');
+      const before = h.model.filterCalls.length;
+
+      const { state } = await h.turn(thread, 'something cheaper');
+
+      expect(h.model.filterCalls).toHaveLength(before + 1);
+      expect(state.filters).toMatchObject({
+        city: 'New Cairo',
+        bedroomsMin: 3,
+        priceMax: 5_000_000,
+      });
+    });
+
+    it('keeps the search mode through turns that are not searches', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment in New Cairo');
+      await h.turn(thread, 'something cheaper');
+      const { state } = await h.turn(thread, 'thanks');
+      expect(state.intent).toBe('smalltalk');
+      expect(state.searchMode).toBe('refine');
+    });
+
+    it('explains both modes to the router', () => {
+      const [system] = classifyMessages({
+        messages: [{ role: 'user', text: 'villa in Zayed' }],
+        candidates: [],
+        bookingInProgress: false,
+        previousSemanticQuery: '',
+      });
+      expect(system?.content).toContain('searchMode');
+      expect(system?.content).toContain('refine');
+      expect(system?.content).toContain('3ayez villa fe Zayed');
+    });
+  });
+
+  describe('changesSearchIdentity', () => {
+    it('is true only when both searches set a different listing or type', () => {
+      expect(
+        changesSearchIdentity({ listing: 'RENT' }, { listing: 'SALE' }),
+      ).toBe(true);
+      expect(
+        changesSearchIdentity({ type: 'apartment' }, { type: 'villa' }),
+      ).toBe(true);
+      expect(
+        changesSearchIdentity({ type: 'villa' }, { type: 'Villa' as never }),
+      ).toBe(false);
+      expect(changesSearchIdentity({ type: 'villa' }, {})).toBe(false);
+      expect(changesSearchIdentity({}, { listing: 'SALE' })).toBe(false);
+    });
+
+    it('treats a changed location alone as a refinement', () => {
+      expect(
+        changesSearchIdentity({ city: 'New Cairo' }, { city: 'Sheikh Zayed' }),
+      ).toBe(false);
+      expect(
+        changesSearchIdentity({ compound: 'Laurel' }, { compound: 'Mivida' }),
+      ).toBe(false);
+      expect(
+        changesSearchIdentity({ district: 'Fifth' }, { district: 'Third' }),
+      ).toBe(false);
+      expect(
+        changesSearchIdentity({ priceMax: 1 }, { priceMax: 2, bedroomsMin: 3 }),
+      ).toBe(false);
     });
   });
 

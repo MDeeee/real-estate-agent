@@ -61,7 +61,12 @@ export const chatEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("properties"), items: z.array(chatCardSchema) }),
   z.object({ type: z.literal("token"), text: z.string() }),
-  z.object({ type: z.literal("booking"), booking: bookingSchema }),
+  z.object({
+    type: z.literal("booking"),
+    booking: bookingSchema,
+    /** The localized confirmation text, shown at once (a Stop can land before `final`). */
+    text: z.string(),
+  }),
   z.object({
     type: z.literal("final"),
     text: z.string(),

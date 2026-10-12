@@ -16,6 +16,17 @@ describe('validateEnv', () => {
     expect(env.EMBEDDING_DIM).toBe(1024);
     expect(env.THROTTLE_TTL_SECONDS).toBe(60);
     expect(env.THROTTLE_LIMIT).toBe(120);
+    expect(env.CHAT_TURN_TIMEOUT_MS).toBe(90_000);
+  });
+
+  it('reads CHAT_TURN_TIMEOUT_MS and rejects a non-positive value', () => {
+    expect(
+      validateEnv({ ...base, CHAT_TURN_TIMEOUT_MS: '120000' })
+        .CHAT_TURN_TIMEOUT_MS,
+    ).toBe(120_000);
+    expect(() => validateEnv({ ...base, CHAT_TURN_TIMEOUT_MS: '0' })).toThrow(
+      /CHAT_TURN_TIMEOUT_MS/,
+    );
   });
 
   it('defaults the business time zone to Africa/Cairo, also when blank', () => {

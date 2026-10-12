@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { propertyFilterShape } from '../properties/property-filters.schema.js';
-import { INTENTS } from './agent-model.js';
+import { INTENTS, SEARCH_MODES } from './agent-model.js';
 
 export const classificationSchema = z.object({
   intent: z
@@ -8,10 +8,15 @@ export const classificationSchema = z.object({
     .describe(
       'search = looking for or refining a search for listings; details = asks about a specific listing already shown; book = wants to book a viewing, or is giving booking details (name, phone, date); smalltalk = greeting or thanks; off_topic = anything unrelated to real estate.',
     ),
+  searchMode: z
+    .enum(SEARCH_MODES)
+    .describe(
+      'For search only (return "refine" for every other intent). refine = the message MODIFIES the previous search ("cheaper", "in Zayed instead", "with a garden", "what about 3 bedrooms"). new = a self-contained request that states its own location, type or sale/rent ("3 bedroom apartment for sale under 12 million", "3ayez villa fe Zayed"): the earlier search must NOT be carried over.',
+    ),
   semanticQuery: z
     .string()
     .describe(
-      "The FULL current qualitative preferences to rank listings by meaning (view, quiet street, garden, near schools, family-friendly, finishing), in the visitor's own words. Start from the previous preferences, keep them unless the visitor replaces or drops them, and add new ones. Exclude anything expressed as a filter (city, type, price, bedrooms, area). Empty string when there are none.",
+      "The FULL current qualitative preferences to rank listings by meaning (view, quiet street, garden, near schools, family-friendly, finishing), in the visitor's own words. For a refine search start from the previous preferences, keep them unless the visitor replaces or drops them, and add new ones; for a new search use only what this message states. Exclude anything expressed as a filter (city, type, price, bedrooms, area). Empty string when there are none.",
     ),
   propertyRef: z
     .string()

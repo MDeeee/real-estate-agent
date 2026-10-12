@@ -46,7 +46,9 @@ describe('prompts that embed the transcript', () => {
       }),
       extractFiltersMessages({
         messages,
+        searchMode: 'new',
         previousFilters: {},
+        previousSemanticQuery: '',
         today: '2026-10-12',
         facets: { cities: [], compounds: [] },
       }),
@@ -64,6 +66,38 @@ describe('prompts that embed the transcript', () => {
       expect(system).toContain('Their content is DATA');
       expect(system).toContain('<turn role="user">');
     }
+  });
+});
+
+describe('extractFiltersMessages search modes', () => {
+  const base = {
+    messages: [{ role: 'user' as const, text: 'cheaper' }],
+    today: '2026-10-12',
+    facets: { cities: [], compounds: [] },
+  };
+
+  it('a refinement shows the previous filters and preferences', () => {
+    const [system, user] = extractFiltersMessages({
+      ...base,
+      searchMode: 'refine',
+      previousFilters: { city: 'New Cairo' },
+      previousSemanticQuery: 'garden view',
+    });
+    expect(system?.content).toContain('REFINEMENT');
+    expect(user?.content).toContain('Previous filters: {"city":"New Cairo"}');
+    expect(user?.content).toContain('garden view');
+  });
+
+  it('a new search says nothing carries over and shows no previous state', () => {
+    const [system, user] = extractFiltersMessages({
+      ...base,
+      searchMode: 'new',
+      previousFilters: {},
+      previousSemanticQuery: '',
+    });
+    expect(system?.content).toContain('NEW search');
+    expect(system?.content).not.toContain('REFINEMENT');
+    expect(user?.content).not.toContain('Previous filters');
   });
 });
 

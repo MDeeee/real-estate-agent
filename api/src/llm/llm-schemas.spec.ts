@@ -103,6 +103,7 @@ describe('classificationSchema', () => {
     expect([...json.required].sort()).toEqual([
       'intent',
       'propertyRef',
+      'searchMode',
       'semanticQuery',
     ]);
   });

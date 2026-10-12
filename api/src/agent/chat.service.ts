@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HumanMessage, RemoveMessage } from '@langchain/core/messages';
 import type { BookingSummary } from '../bookings/bookings.service.js';
+import type { Env } from '../config/env.schema.js';
 import type { TokenUsage } from '../llm/agent-model.js';
 import { RECURSION_LIMIT, TRIM_NODE } from './agent-graph.js';
 import { AgentGraphService } from './agent-graph.service.js';
@@ -23,8 +25,6 @@ import {
 } from './nodes/node-support.js';
 import { maskPhone, maskPhonesInText, threadLogId } from './pii.js';
 import { bookingConfirmation } from './replies.js';
-
-export const TURN_TIMEOUT_MS = 60_000;
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
@@ -88,9 +88,14 @@ export class ChatService {
   private readonly logger = new Logger('Chat');
   private readonly activeThreads = new Set<string>();
 
+  private readonly turnTimeoutMs: number;
+
   constructor(
     @Inject(AgentGraphService) private readonly agent: AgentGraphService,
-  ) {}
+    @Inject(ConfigService) config: ConfigService<Env, true>,
+  ) {
+    this.turnTimeoutMs = config.get('CHAT_TURN_TIMEOUT_MS', { infer: true });
+  }
 
   /**
    * One turn at a time per conversation; returns the release function. The lock
@@ -125,7 +130,7 @@ export class ChatService {
     const log = threadLogId(threadId);
     const config = { configurable: { thread_id: threadId } };
     const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-    const timeout = AbortSignal.timeout(TURN_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(this.turnTimeoutMs);
     const signal = AbortSignal.any([clientSignal, timeout]);
 
     let before: Awaited<ReturnType<AgentGraphService['graph']['getState']>>;
