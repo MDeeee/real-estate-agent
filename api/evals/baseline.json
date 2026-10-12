@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-12T13:17:39.141Z",
+  "provider": "openai-compatible",
+  "model": "gemini-3.5-flash-lite",
+  "metrics": {
+    "intentAccuracy": 1,
+    "filterAccuracy": 1,
+    "hitAt5": 1,
+    "exclusion": 1,
+    "referenceAccuracy": 1,
+    "groundedness": 1,
+    "refusalCorrectness": 1,
+    "avgConversationLatencyMs": 3779.751400000002,
+    "totalTokens": 40722
+  }
+}
