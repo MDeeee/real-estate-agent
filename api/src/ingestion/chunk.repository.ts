@@ -9,6 +9,13 @@ export interface ChunkRow {
   embedding: number[];
 }
 
+export interface RankedProperty {
+  propertyId: string;
+  chunkContent: string;
+  /** Cosine similarity of the best chunk, in [-1, 1]; higher is closer. */
+  similarity: number;
+}
+
 export function toVectorLiteral(embedding: readonly number[]): string {
   return `[${embedding.join(',')}]`;
 }
@@ -31,6 +38,40 @@ export class ChunkRepository {
         Prisma.sql`(${randomUUID()}, ${documentId}, ${propertyId}, ${chunk.index}, ${chunk.content}, ${toVectorLiteral(chunk.embedding)}::vector)`,
     );
     await tx.$executeRaw`INSERT INTO "Chunk" ("id", "documentId", "propertyId", "index", "content", "embedding") VALUES ${Prisma.join(values)}`;
+  }
+
+  /**
+   * Ranks the given properties by the best (closest) of their chunks to the
+   * query vector. Properties without chunks are omitted.
+   */
+  async rankProperties(
+    propertyIds: readonly string[],
+    queryVector: readonly number[],
+    limit: number,
+  ): Promise<RankedProperty[]> {
+    if (propertyIds.length === 0 || limit <= 0) return [];
+    const vector = toVectorLiteral(queryVector);
+    const rows = await this.prisma.$queryRaw<
+      { propertyId: string; content: string; similarity: number }[]
+    >`
+      SELECT "propertyId", "content", "similarity"
+      FROM (
+        SELECT DISTINCT ON ("propertyId")
+          "propertyId",
+          "content",
+          1 - ("embedding" <=> ${vector}::vector) AS "similarity"
+        FROM "Chunk"
+        WHERE "propertyId" = ANY(${[...propertyIds]}::text[])
+        ORDER BY "propertyId", "embedding" <=> ${vector}::vector
+      ) AS best
+      ORDER BY "similarity" DESC, "propertyId" ASC
+      LIMIT ${limit}
+    `;
+    return rows.map((row) => ({
+      propertyId: row.propertyId,
+      chunkContent: row.content,
+      similarity: Number(row.similarity),
+    }));
   }
 
   countByDocument(documentId: string): Promise<number> {

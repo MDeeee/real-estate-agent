@@ -1,0 +1,65 @@
+import { toJsonSchema } from '@langchain/core/utils/json_schema';
+import { describe, expect, it } from 'vitest';
+import { propertyFilterShape } from '../properties/property-filters.schema.js';
+import { bookingExtractionSchema, llmFilterSchema } from './llm-schemas.js';
+
+type ObjectSchema = {
+  properties: Record<string, { anyOf: { type: string; enum?: string[] }[] }>;
+  required: string[];
+};
+
+describe('llmFilterSchema', () => {
+  const json = toJsonSchema(llmFilterSchema) as unknown as ObjectSchema;
+
+  it('has exactly the keys of the regular search filters, all required', () => {
+    const keys = Object.keys(propertyFilterShape).sort();
+    expect(Object.keys(json.properties).sort()).toEqual(keys);
+    expect([...json.required].sort()).toEqual(keys);
+  });
+
+  it('allows null for every field', () => {
+    for (const field of Object.values(json.properties)) {
+      expect(field.anyOf.map((option) => option.type)).toContain('null');
+    }
+  });
+
+  it('keeps the enums of the search contract', () => {
+    expect(json.properties['listing']?.anyOf.find((o) => o.enum)?.enum).toEqual(
+      ['SALE', 'RENT'],
+    );
+    expect(json.properties['type']?.anyOf.find((o) => o.enum)?.enum).toContain(
+      'villa',
+    );
+  });
+
+  it('parses a model answer where unspecified filters are null', () => {
+    const parsed = llmFilterSchema.parse({
+      city: 'New Cairo',
+      compound: null,
+      district: null,
+      type: 'apartment',
+      listing: null,
+      priceMin: null,
+      priceMax: 7_000_000,
+      bedroomsMin: 3,
+      bathroomsMin: null,
+      areaMin: null,
+      areaMax: null,
+    });
+    expect(parsed.priceMax).toBe(7_000_000);
+  });
+});
+
+describe('bookingExtractionSchema', () => {
+  it('requires every key and allows null', () => {
+    const json = toJsonSchema(
+      bookingExtractionSchema,
+    ) as unknown as ObjectSchema;
+    expect([...json.required].sort()).toEqual([
+      'name',
+      'phone',
+      'preferredDate',
+      'propertyRef',
+    ]);
+  });
+});

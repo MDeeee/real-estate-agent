@@ -1,16 +1,28 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  type ExecutionContext,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import {
   InjectThrottlerOptions,
   InjectThrottlerStorage,
   ThrottlerGuard,
+  type ThrottlerLimitDetail,
   type ThrottlerModuleOptions,
   type ThrottlerStorage,
 } from '@nestjs/throttler';
 import type { Env } from '../config/env.schema.js';
+import {
+  BUSY_MESSAGE,
+  GLOBAL_TRACKER,
+  TOO_MANY_REQUESTS_MESSAGE,
+} from './throttling.js';
 
 export const INTERNAL_KEY_HEADER = 'x-internal-key';
 export const CLIENT_IP_HEADER = 'x-client-ip';
@@ -46,6 +58,36 @@ export class ClientIpThrottlerGuard extends ThrottlerGuard {
     super(options, storageService, reflector);
     const key = config.get('INTERNAL_API_KEY', { infer: true });
     this.internalKeyDigest = key ? digest(key) : undefined;
+  }
+
+  /**
+   * A 429 the visitor can act on: a friendly JSON message and the standard
+   * `Retry-After` header (seconds), instead of the library's default text.
+   */
+  protected override throwThrottlingException(
+    context: ExecutionContext,
+    detail: ThrottlerLimitDetail,
+  ): Promise<void> {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil(detail.timeToBlockExpire || detail.timeToExpire),
+    );
+    context
+      .switchToHttp()
+      .getResponse<{ setHeader(name: string, value: string): void }>()
+      .setHeader('Retry-After', String(retryAfter));
+    const message =
+      detail.tracker === GLOBAL_TRACKER
+        ? BUSY_MESSAGE
+        : TOO_MANY_REQUESTS_MESSAGE;
+    throw new HttpException(
+      {
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        error: 'Too Many Requests',
+        message,
+      },
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 
   protected override getTracker(req: Record<string, unknown>): Promise<string> {

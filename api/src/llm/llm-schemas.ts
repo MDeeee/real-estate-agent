@@ -1,0 +1,83 @@
+import { z } from 'zod';
+import { propertyFilterShape } from '../properties/property-filters.schema.js';
+import { INTENTS, LANGUAGES } from './agent-model.js';
+
+export const classificationSchema = z.object({
+  intent: z
+    .enum(INTENTS)
+    .describe(
+      'search = looking for or refining a search for listings; details = asks about a specific listing already shown; book = wants to book a viewing, or is giving booking details (name, phone, date); smalltalk = greeting or thanks; off_topic = anything unrelated to real estate.',
+    ),
+  language: z
+    .enum(LANGUAGES)
+    .describe('Language of the visitor\'s latest message: "ar" or "en".'),
+  semanticQuery: z
+    .string()
+    .describe(
+      "The FULL current qualitative preferences to rank listings by meaning (view, quiet street, garden, near schools, family-friendly, finishing), in the visitor's own words. Start from the previous preferences, keep them unless the visitor replaces or drops them, and add new ones. Exclude anything expressed as a filter (city, type, price, bedrooms, area). Empty string when there are none.",
+    ),
+  propertyRef: z
+    .string()
+    .nullable()
+    .describe(
+      'For details/book only: the slug of the listing the visitor refers to when it is identifiable from the numbered candidates, otherwise their own words ("the second one", a title fragment). null when none is referred to.',
+    ),
+});
+
+export const bookingExtractionSchema = z.object({
+  propertyRef: z
+    .string()
+    .nullable()
+    .describe(
+      'Slug of the listing to book when identifiable from the candidates, otherwise the visitor\'s words ("the second one"). null when not stated in this conversation.',
+    ),
+  name: z
+    .string()
+    .nullable()
+    .describe("Visitor's full name, exactly as written. null if not given."),
+  phone: z
+    .string()
+    .nullable()
+    .describe('Phone number exactly as written. null if not given.'),
+  preferredDate: z
+    .string()
+    .nullable()
+    .describe(
+      "Preferred viewing date as ISO YYYY-MM-DD, resolving relative dates against today's date. null if not given.",
+    ),
+});
+
+type Shape = typeof propertyFilterShape;
+
+/**
+ * The filter contract as the LLM sees it: the very same fields and
+ * descriptions as the regular search, but every key required and nullable,
+ * because structured-output providers reject optional keys.
+ */
+/** The JSON-schema-representable core of a filter field (preprocessing steps removed). */
+function llmFieldOf(field: Shape[keyof Shape]): z.ZodType {
+  const inner = field.unwrap();
+  if (inner instanceof z.ZodPipe) {
+    const target = inner.out as z.ZodType;
+    return inner.description ? target.describe(inner.description) : target;
+  }
+  return inner;
+}
+
+/**
+ * The filter contract as the LLM sees it: the very same fields and
+ * descriptions as the regular search, but every key required and nullable,
+ * because structured-output providers reject optional keys.
+ */
+export function toLlmFilterSchema(shape: Shape = propertyFilterShape) {
+  return z.object(
+    Object.fromEntries(
+      Object.entries(shape).map(([key, field]) => [
+        key,
+        llmFieldOf(field).nullable(),
+      ]),
+    ) as { [K in keyof Shape]: z.ZodNullable<z.ZodType> },
+  );
+}
+
+export const llmFilterSchema = toLlmFilterSchema();

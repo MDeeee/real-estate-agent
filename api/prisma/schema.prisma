@@ -105,5 +105,6 @@ model Booking {
   threadId      String?
   createdAt     DateTime      @default(now())
 
+  @@unique([threadId, propertyId, preferredDate])
   @@index([propertyId])
 }

@@ -42,6 +42,11 @@ export const envSchema = z.object({
   ),
   THROTTLE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
+  // Stricter budget for `POST /api/chat`: every request costs LLM tokens.
+  CHAT_THROTTLE_LIMIT: z.coerce.number().int().positive().default(10),
+  // Budget for `POST /api/chat` across ALL visitors, per minute. Independent of
+  // the client IP, so it caps LLM spend even if every visitor looks different.
+  CHAT_GLOBAL_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
 
   LLM_PROVIDER: z.enum(['claude', 'openai-compatible']).default('claude'),
   ANTHROPIC_API_KEY: optionalString,
@@ -49,6 +54,11 @@ export const envSchema = z.object({
   OPENAI_COMPAT_BASE_URL: optionalUrl,
   OPENAI_COMPAT_API_KEY: optionalString,
   OPENAI_COMPAT_MODEL: optionalString,
+  // How `withStructuredOutput` asks the model for JSON: tool calling (widest
+  // support) or the provider's native JSON-schema response format.
+  LLM_STRUCTURED_METHOD: z
+    .enum(['functionCalling', 'jsonSchema'])
+    .default('functionCalling'),
 
   OLLAMA_BASE_URL: z.url().default('http://localhost:11434'),
   EMBEDDING_MODEL: z.string().min(1).default('bge-m3'),

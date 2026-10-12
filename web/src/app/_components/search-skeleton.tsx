@@ -1,7 +1,4 @@
-/**
- * Placeholders for the filter form and the results. They are direct children
- * of the page grid (like the real components), so the mobile order matches.
- */
+/** Placeholders for the filter form and the results. */
 export function SearchSkeleton() {
   return (
     <>
@@ -13,7 +10,7 @@ export function SearchSkeleton() {
       <div
         role="status"
         aria-label="Loading properties"
-        className="order-2 grid min-w-0 gap-4 sm:grid-cols-2 lg:order-none xl:grid-cols-3"
+        className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3"
       >
         {Array.from({ length: 6 }, (_, index) => (
           <div

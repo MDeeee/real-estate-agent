@@ -14,13 +14,9 @@ import {
   toSearchParams,
   type SearchQuery,
 } from "@/lib/property-search";
-import { AskAiPanel } from "./_components/ask-ai-panel";
+import { ChatPanel } from "./_components/chat-panel";
 import { FilterPanel } from "./_components/filter-panel";
-import {
-  ASIDE_CLASS,
-  HOME_GRID_CLASS,
-  RESULTS_CLASS,
-} from "./_components/home-layout";
+import { HomeShell } from "./_components/home-shell";
 import { Results } from "./_components/results";
 import { SearchSkeleton } from "./_components/search-skeleton";
 import { SiteHeader } from "./_components/site-header";
@@ -29,22 +25,24 @@ export default function Home({ searchParams }: PageProps<"/">) {
   return (
     <>
       <SiteHeader />
-      <main className={HOME_GRID_CLASS}>
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6">
         <div className="min-w-0">
           <h1 className="text-3xl font-semibold tracking-tight">
             Find a property in Egypt
           </h1>
           <p className="mt-2 max-w-2xl text-muted">
-            Filter published listings by location, type, price and size. Every
-            result comes from the same data the AI assistant will use.
+            Ask the AI assistant in Arabic or English, or filter the listings
+            yourself. Both search the same data, so you can compare them.
           </p>
         </div>
-        <Suspense fallback={<SearchSkeleton />}>
-          <Search searchParams={searchParams} />
-        </Suspense>
-        <aside className={ASIDE_CLASS}>
-          <AskAiPanel />
-        </aside>
+        <HomeShell
+          chat={<ChatPanel />}
+          search={
+            <Suspense fallback={<SearchSkeleton />}>
+              <Search searchParams={searchParams} />
+            </Suspense>
+          }
+        />
       </main>
     </>
   );
@@ -84,7 +82,7 @@ async function Search({
         query={query}
         facets={facets}
       />
-      <div className={RESULTS_CLASS}>
+      <div className="min-w-0">
         {outcome.kind === "ok" ? (
           <Results query={query} data={outcome.data} />
         ) : (

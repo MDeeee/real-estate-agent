@@ -87,6 +87,22 @@ describe('ClientIpThrottlerGuard', () => {
     expect(await hit(url, asVisitor('203.0.113.7'))).toBe(429);
   });
 
+  it('refuses with a friendly JSON message and a standard Retry-After header', async () => {
+    const url = await start(INTERNAL_KEY);
+    await exhaust(url, {});
+    const response = await fetch(url);
+
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get('retry-after'))).toBeGreaterThanOrEqual(
+      1,
+    );
+    const body = (await response.json()) as { message: string };
+    expect(body.message).toBe(
+      'Too many requests. Please wait a moment and try again.',
+    );
+    expect(body.message).not.toContain('ThrottlerException');
+  });
+
   it('ignores x-client-ip without the internal key', async () => {
     const url = await start(INTERNAL_KEY);
 

@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
+import { AgentModule } from './agent/agent.module.js';
 import { ClientIpThrottlerGuard } from './common/client-ip-throttler.guard.js';
+import { buildThrottlerOptions } from './common/throttling.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import type { Env } from './config/env.schema.js';
 import { HealthModule } from './health/health.module.js';
@@ -16,20 +18,15 @@ import { PropertiesModule } from './properties/properties.module.js';
     AppConfigModule,
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => ({
-        throttlers: [
-          {
-            ttl: config.get('THROTTLE_TTL_SECONDS', { infer: true }) * 1000,
-            limit: config.get('THROTTLE_LIMIT', { infer: true }),
-          },
-        ],
-      }),
+      useFactory: (config: ConfigService<Env, true>) =>
+        buildThrottlerOptions(config),
     }),
     PrismaModule,
     HealthModule,
     IngestionModule,
     AdminModule,
     PropertiesModule,
+    AgentModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ClientIpThrottlerGuard }],
 })

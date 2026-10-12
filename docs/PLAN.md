@@ -32,16 +32,17 @@ AI chat and regular filter search, side by side.
 
 ### AI (LangGraph.js `StateGraph`)
 
-State: `messages`, `intent`, `filters`, `candidates`, `bookingDraft`.
+State: `messages`, `intent`, `language`, `filters`, `semanticQuery`, `candidates`, `bookingDraft`, `citedSlugs`, `focusSlug`.
 
 | Node | Responsibility |
 | --- | --- |
 | `route` | Structured output (zod): intent in `search \| details \| book \| off_topic`, plus reply language (`ar \| en`) |
 | `extract_filters` | `withStructuredOutput(PropertyFiltersSchema)`; one retry on validation failure |
-| `retrieve` | Runs the same SQL filter query as the regular search, then ranks matches by vector similarity of their chunks to the question (custom LangChain retriever over `ChunkRepository`); top 5 |
+| `retrieve` | Runs the same SQL filter query as the regular search, then ranks matches by vector similarity of their best chunk to the semantic query (`ChunkRepository.rankProperties`, ADR 0004); top 5 |
+| `details` | Resolves "the second one" or a title against the last results and answers from that listing's full markdown |
 | `answer` | Grounded only in retrieved chunks; cites property ids; says "not found" instead of guessing; post-check that every cited id is in the retrieved ids |
 | `book` | Structured extraction of `{ propertyId, name, phone, preferredDate }`; asks for missing fields; when complete, inserts a `Booking` (status `CONFIRMED`) and confirms |
-| `refuse` | Polite off-topic refusal |
+| `smalltalk` / `refuse` | Short localized static replies |
 
 Cross-cutting:
 
@@ -64,8 +65,18 @@ About 10 questions with expected property ids. `pnpm eval` reports the hit rate.
 | M0 | Repo, Docker Postgres/pgvector, schema, 20 sample `.md` files |
 | M1 | Admin upload and ingestion |
 | M2 | Landing page and regular filter search |
-| M3 | LangGraph chat (search and booking) |
+| M3 | LangGraph chat (search and booking). Done, see below |
 | M4 | Eval, README with architecture diagram, demo GIF |
+
+## M3 delivered
+
+- [x] `api/src/llm`: `ChatModelFactory` (Claude or OpenAI-compatible, no sampling params for Claude), `AgentModel` port with a LangChain implementation, `LLM_STRUCTURED_METHOD`; the app boots without an LLM key and chat answers 503
+- [x] Filter-then-rank retrieval: `ChunkRepository.rankProperties`, `AgentRetrievalService`, ADR 0004
+- [x] `api/src/agent`: LangGraph `StateGraph` (`route`, `extract_filters`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`), `PostgresSaver` in schema `langgraph`, 60 s turn timeout, recursion limit 12, citation post-check
+- [x] `BookingsService.create`: CONFIRMED immediately, idempotent per thread, property and date (unique index)
+- [x] `POST /api/chat` (SSE) and `GET /api/chat/:threadId`, stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
+- [x] Web: `/api/chat` pass-through route, chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs
+- [x] Tests: graph transitions with a fake model and `MemorySaver`, booking validation, citations, listing references, SSE and booking integration tests
 
 ## Out of scope
 

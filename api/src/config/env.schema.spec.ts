@@ -46,6 +46,26 @@ describe('validateEnv', () => {
     ).toThrow(/at least 32 characters[\s\S]*INTERNAL_API_KEY/);
   });
 
+  it('defaults the chat budget and structured-output method', () => {
+    const env = validateEnv(base);
+    expect(env.CHAT_THROTTLE_LIMIT).toBe(10);
+    expect(env.CHAT_GLOBAL_LIMIT_PER_MINUTE).toBe(30);
+    expect(env.LLM_STRUCTURED_METHOD).toBe('functionCalling');
+    expect(
+      validateEnv({ ...base, LLM_STRUCTURED_METHOD: 'jsonSchema' })
+        .LLM_STRUCTURED_METHOD,
+    ).toBe('jsonSchema');
+    expect(() =>
+      validateEnv({ ...base, LLM_STRUCTURED_METHOD: 'xml' }),
+    ).toThrow(/LLM_STRUCTURED_METHOD/);
+  });
+
+  it('boots without any LLM credentials', () => {
+    const env = validateEnv(base);
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.OPENAI_COMPAT_API_KEY).toBeUndefined();
+  });
+
   it('fails fast with a readable message on invalid input', () => {
     expect(() =>
       validateEnv({ ADMIN_TOKEN: 'short', LLM_PROVIDER: 'gemini' }),
