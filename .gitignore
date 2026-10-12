@@ -11,6 +11,7 @@ next-env.d.ts
 !.env.example
 
 api/src/generated/
+api/evals/results/
 
 .DS_Store
 Thumbs.db

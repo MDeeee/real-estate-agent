@@ -56,7 +56,7 @@ Cross-cutting:
 
 ### Eval
 
-About 10 questions with expected property ids. `pnpm eval` reports the hit rate. A GitHub Actions job runs it only on manual trigger (`workflow_dispatch`) to avoid API cost.
+13 cases over the sample listings (6 English, 4 Arabic, 3 multi-turn; one off-topic, one booking intent) run through the real graph. `pnpm eval` reports intent accuracy, filter accuracy, retrieval hit@5, exclusion, reference accuracy, groundedness and refusal correctness, and fails when a metric drops more than `EVAL_TOLERANCE` below the committed `api/evals/baseline.json`. A GitHub Actions job runs it only on manual trigger (`workflow_dispatch`) to avoid API cost.
 
 ## Milestones
 
@@ -66,7 +66,7 @@ About 10 questions with expected property ids. `pnpm eval` reports the hit rate.
 | M1 | Admin upload and ingestion |
 | M2 | Landing page and regular filter search |
 | M3 | LangGraph chat (search and booking). Done, see below |
-| M4 | Eval, README with architecture diagram, demo GIF |
+| M4 | Seed command, eval suite, README with architecture diagram, demo GIF. Implemented; two items pending, see below |
 
 ## M3 delivered
 
@@ -77,6 +77,16 @@ About 10 questions with expected property ids. `pnpm eval` reports the hit rate.
 - [x] `POST /api/chat` (SSE) and `GET /api/chat/:threadId`, stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
 - [x] Web: `/api/chat` pass-through route, chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs
 - [x] Tests: graph transitions with a fake model and `MemorySaver`, booking validation, citations, listing references, SSE and booking integration tests
+
+## M4 delivered
+
+- [x] `pnpm seed`: ingests `samples/properties` through the real `IngestionService` (Nest application context, per-file outcome table, non-zero exit on failure, idempotent, clear message when Ollama is unreachable)
+- [x] `api/evals`: 13 cases, runner on the real graph with an in-memory checkpointer and disabled bookings, rate-limit pacing and one retry on 429, metrics table, `latest.json`, baseline gate (`--update-baseline`, `EVAL_TOLERANCE`), skip without an LLM key (exit 1 when `CI` is set)
+- [x] Pure scoring functions with unit tests (in `pnpm test`)
+- [x] `.github/workflows/eval.yml`: manual only, pgvector service, Ollama + `bge-m3`, seed, eval, `latest.json` artifact
+- [x] README rewritten as the repo front page (pitch, Mermaid architecture and graph diagrams, retrieval, guardrails, quick start, admin, testing, evals, deployment notes, structure, ADR index), MIT `LICENSE`
+- [ ] First real eval run and committed `api/evals/baseline.json` (pending an LLM key)
+- [ ] Demo GIF and screenshots in `docs/media/`, embedded in the README (pending a browser session)
 
 ## Out of scope
 

@@ -2,6 +2,7 @@ import type { LangGraphRunnableConfig } from '@langchain/langgraph';
 import type { AgentGraphDeps } from '../agent-graph.types.js';
 import type { AgentStateType, AgentStateUpdate } from '../agent-state.js';
 import { sanitiseCitations } from '../citations.js';
+import { searchGroundingSlugs } from '../grounding.js';
 import { emptyAnswerReply } from '../replies.js';
 import {
   assistantMessage,
@@ -43,8 +44,10 @@ export function createAnswerNode({ model, logger }: AgentGraphDeps) {
       config,
     );
 
-    const allowed = new Set(state.candidates.map(({ slug }) => slug));
-    const { text, citedSlugs, dropped } = sanitiseCitations(raw, allowed);
+    const { text, citedSlugs, dropped } = sanitiseCitations(
+      raw,
+      searchGroundingSlugs(state.candidates),
+    );
     if (dropped.length > 0) {
       logger.warn(
         `Dropped ungrounded citations from the answer: ${dropped.join(', ')}`,

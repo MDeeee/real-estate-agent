@@ -6,6 +6,7 @@ import type {
   Candidate,
 } from '../agent-state.js';
 import { sanitiseCitations } from '../citations.js';
+import { detailsGroundingSlugs } from '../grounding.js';
 import { SLUG_LIKE, resolveCandidate } from '../listing-reference.js';
 import {
   emptyAnswerReply,
@@ -75,7 +76,7 @@ export function createDetailsNode({ model, listings, logger }: AgentGraphDeps) {
 
     const { text, citedSlugs, dropped } = sanitiseCitations(
       raw,
-      new Set([detail.card.slug]),
+      detailsGroundingSlugs(detail.card.slug),
     );
     if (dropped.length > 0) {
       logger.warn(

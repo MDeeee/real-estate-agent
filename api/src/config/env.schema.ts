@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const optionalString = z
+/** A trimmed string where blank counts as unset (CI passes unset variables as ""). */
+export const optionalString = z
   .string()
   .trim()
   .transform((value) => (value === '' ? undefined : value))
@@ -66,6 +67,18 @@ export const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/** The variables that select and configure the LLM; nothing else is needed to tell whether one is set up. */
+export const llmEnvSchema = envSchema.pick({
+  LLM_PROVIDER: true,
+  ANTHROPIC_API_KEY: true,
+  CLAUDE_MODEL: true,
+  OPENAI_COMPAT_BASE_URL: true,
+  OPENAI_COMPAT_API_KEY: true,
+  OPENAI_COMPAT_MODEL: true,
+});
+
+export type LlmEnv = z.infer<typeof llmEnvSchema>;
 
 export function validateEnv(raw: Record<string, unknown>): Env {
   const result = envSchema.safeParse(raw);

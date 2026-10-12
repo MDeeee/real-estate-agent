@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitiseCitations } from './citations.js';
+import { extractCitations, sanitiseCitations } from './citations.js';
 
 const allowed = new Set(['zamalek-flat', 'laurel-villa']);
 
@@ -42,7 +42,10 @@ describe('sanitiseCitations', () => {
   });
 
   it('still treats a bare slug followed by a space and a bracket as a citation', () => {
-    const result = sanitiseCitations('Try [zamalek-flat] (2 bedrooms).', allowed);
+    const result = sanitiseCitations(
+      'Try [zamalek-flat] (2 bedrooms).',
+      allowed,
+    );
     expect(result.citedSlugs).toEqual(['zamalek-flat']);
     expect(result.text).toBe('Try [zamalek-flat] (2 bedrooms).');
   });
@@ -53,5 +56,19 @@ describe('sanitiseCitations', () => {
       citedSlugs: [],
       dropped: [],
     });
+  });
+});
+
+describe('extractCitations', () => {
+  it('lists each cited slug once, in order, ignoring links and plain brackets', () => {
+    expect(
+      extractCitations(
+        'See [b-two] then [a-one], [b-two] again, [Note], [4] and [x-link](http://a.b).',
+      ),
+    ).toEqual(['b-two', 'a-one']);
+  });
+
+  it('returns nothing for text without citations', () => {
+    expect(extractCitations('Nothing here.')).toEqual([]);
   });
 });

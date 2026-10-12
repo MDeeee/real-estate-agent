@@ -10,11 +10,13 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
-    "format": "prettier --write \"src/**/*.ts\" \"prisma.config.ts\"",
-    "lint": "oxlint --type-aware src/",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.ts\" \"evals/*.{ts,json}\" \"prisma.config.ts\"",
+    "lint": "oxlint --type-aware src/ scripts/ evals/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "seed": "tsx scripts/seed.ts",
+    "eval": "tsx evals/run.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:create": "prisma migrate dev --create-only",
@@ -54,6 +56,7 @@
     "prettier": "^3.4.2",
     "prisma": "7.10.0",
     "source-map-support": "^0.5.21",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   }

@@ -29,6 +29,8 @@ Run from the repo root.
 | Start database | `pnpm db:up` |
 | Stop database | `pnpm db:down` |
 | Apply migrations | `pnpm db:migrate` (`prisma migrate deploy`) |
+| Index sample listings | `pnpm seed` (needs Ollama with `bge-m3`) |
+| Evals | `pnpm eval` (needs an LLM key; `--update-baseline` records `api/evals/baseline.json`) |
 | New migration | `pnpm --filter api db:migrate:create`, then delete the `DROP INDEX "Chunk_embedding_hnsw_idx"` Prisma proposes |
 | Dev (api + web) | `pnpm dev` |
 | Test | `pnpm test` |

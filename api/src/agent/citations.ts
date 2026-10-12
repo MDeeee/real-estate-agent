@@ -4,6 +4,12 @@
  */
 const CITATION = /([ \t]?)\[((?=[^\]]*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*)\](?!\()/g;
 
+/** Every distinct `[slug]` citation in a text, in order of first appearance. */
+export function extractCitations(text: string): string[] {
+  const slugs = [...text.matchAll(CITATION)].map((match) => match[2] ?? '');
+  return [...new Set(slugs)];
+}
+
 export interface SanitisedAnswer {
   text: string;
   citedSlugs: string[];
