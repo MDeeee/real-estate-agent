@@ -32,7 +32,7 @@ AI chat and regular filter search, side by side.
 
 ### AI (LangGraph.js `StateGraph`)
 
-State: `messages`, `intent`, `language`, `filters`, `semanticQuery`, `candidates`, `bookingDraft`, `citedSlugs`, `focusSlug`.
+State: `messages`, `intent`, `searchMode`, `language`, `filters`, `semanticQuery`, `propertyRef`, `candidates`, `bookingDraft`, `citedSlugs`, `focusSlug`.
 
 | Node | Responsibility |
 | --- | --- |
@@ -40,7 +40,7 @@ State: `messages`, `intent`, `language`, `filters`, `semanticQuery`, `candidates
 | `retrieve` | Runs the same SQL filter query as the regular search, then ranks matches by vector similarity of their best chunk to the semantic query (`ChunkRepository.rankProperties`, ADR 0004); top 5 |
 | `details` | Resolves "the second one" or a title against the last results and answers from that listing's full markdown |
 | `answer` | Grounded only in retrieved chunks; cites property ids; says "not found" instead of guessing; post-check that every cited id is in the retrieved ids |
-| `book` | Structured extraction of `{ propertyId, name, phone, preferredDate }`; asks for missing fields; when complete, inserts a `Booking` (status `CONFIRMED`) and confirms |
+| `book` | Structured extraction of `{ property, name, phone, preferredDate, preferredTime }`; validates each in code, asks for missing fields; when complete, inserts a `Booking` (status `CONFIRMED`) and confirms |
 | `smalltalk` / `refuse` | Short localized static replies |
 
 Cross-cutting:
@@ -55,7 +55,7 @@ Cross-cutting:
 
 ### Eval
 
-13 cases over the sample listings (6 English, 4 Arabic, 3 multi-turn; one off-topic, one booking intent) run through the real graph. `pnpm eval` reports intent accuracy, filter accuracy, retrieval hit@5, exclusion, reference accuracy, groundedness and refusal correctness, and fails when a metric drops more than `EVAL_TOLERANCE` below the committed `apps/api/evals/baseline.json`. A GitHub Actions job runs it only on manual trigger (`workflow_dispatch`) to avoid API cost.
+22 cases over the sample listings (7 English, 6 Arabic, 1 Arabizi, 8 multi-turn; two refusals, two booking intents, one no-results, one greeting) run through the real graph. `pnpm eval` reports intent accuracy, filter accuracy, retrieval hit@5, exclusion, reference accuracy, groundedness and refusal correctness, and fails when a metric drops more than `EVAL_TOLERANCE` below the committed `apps/api/evals/baseline.json`. A GitHub Actions job runs it only on manual trigger (`workflow_dispatch`) to avoid API cost.
 
 ## Milestones
 
@@ -65,27 +65,27 @@ Cross-cutting:
 | M1 | Admin upload and ingestion |
 | M2 | Landing page and regular filter search |
 | M3 | LangGraph chat (search and booking). Done, see below |
-| M4 | Seed command, eval suite, README with architecture diagram, demo GIF. Implemented; two items pending, see below |
+| M4 | Seed command, eval suite, README with architecture diagram, demo GIF. Implemented; the demo media is pending, see below |
 
 ## M3 delivered
 
 - [x] `apps/api/src/llm`: `ChatModelFactory` (Claude or OpenAI-compatible, no sampling params for Claude), `AgentModel` port with a LangChain implementation, `LLM_STRUCTURED_METHOD`; the app boots without an LLM key and chat answers 503
 - [x] Filter-then-rank retrieval: `ChunkRepository.rankProperties`, `AgentRetrievalService`, ADR 0004
-- [x] `apps/api/src/agent`: LangGraph `StateGraph` (`understand`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`), `PostgresSaver` in schema `langgraph`, 60 s turn timeout, recursion limit 12, citation post-check
+- [x] `apps/api/src/agent`: LangGraph `StateGraph` (`understand`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`), `PostgresSaver` in schema `langgraph`, turn timeout (`CHAT_TURN_TIMEOUT_MS`, default 90 s), recursion limit 12, citation post-check
 - [x] `BookingsService.create`: CONFIRMED immediately, idempotent per thread, property and date (unique index)
-- [x] `POST /api/chat` (SSE) and `GET /api/chat/:threadId`, stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
-- [x] Web: `/api/chat` pass-through route, chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs
+- [x] `POST /api/chat` (SSE), `GET /api/chat/history` and `POST /api/chat/reset` (the conversation id is an `HttpOnly` cookie), stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
+- [x] Web: chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs
 - [x] Tests: graph transitions with a fake model and `MemorySaver`, booking validation, citations, listing references, SSE and booking integration tests. Policy: unit tests cover the AI pipeline only; app plumbing is covered by typecheck, lint, build and the evals
 
 ## M4 delivered
 
 - [x] `pnpm seed`: ingests `samples/properties` through the real `IngestionService` (Nest application context, per-file outcome table, non-zero exit on failure, idempotent, clear message when Ollama is unreachable)
-- [x] `apps/api/evals`: 13 cases, runner on the real graph with an in-memory checkpointer and disabled bookings, rate-limit pacing and one retry on 429, metrics table, `latest.json`, baseline gate (`--update-baseline`, `EVAL_TOLERANCE`), skip without an LLM key (exit 1 when `CI` is set)
+- [x] `apps/api/evals`: 22 cases, runner on the real graph with an in-memory checkpointer and disabled bookings, rate-limit pacing and one retry on 429, metrics table, `latest.json`, baseline gate (`--update-baseline`, `EVAL_TOLERANCE`), skip without an LLM key (exit 1 when `CI` is set)
 - [x] Pure scoring functions with unit tests (in `pnpm test`)
 - [x] `.github/workflows/eval.yml`: manual only, pgvector service, Ollama + `bge-m3`, seed, eval, `latest.json` artifact
-- [x] README rewritten as the repo front page (pitch, Mermaid architecture and graph diagrams, retrieval, guardrails, quick start, admin, testing, evals, deployment notes, structure, ADR index), MIT `LICENSE`
-- [ ] First real eval run and committed `apps/api/evals/baseline.json` (pending an LLM key)
-- [ ] Demo GIF and screenshots in `docs/media/`, embedded in the README (pending a browser session)
+- [x] README as the repo front page (pitch, Mermaid system and agent-graph diagrams, how it works, ADR index, getting started, admin, evals with baseline results, tests, structure, security notes, known limitations), MIT `LICENSE`
+- [x] First real eval run and committed `apps/api/evals/baseline.json` (2026-10-13, `gemini-3.5-flash-lite`, 22 cases)
+- [ ] Demo GIF and screenshots in `docs/media/` (file list in `docs/media/README.md`), then uncomment the references in the README Demo section
 
 ## Out of scope
 

@@ -18,7 +18,7 @@ Real-estate AI agent for the Egyptian market (Arabic and English). An admin uplo
 | `apps/web/` | Vite + React frontend: landing page (chat + filter search) and `/admin`. `src/app` (router, layouts), `src/features/{search,chat,admin}`, `src/shared` (HTTP client, UI, helpers) |
 | `contracts/` | Fixtures replayed by both the api and web tests (citation grammar) |
 | `samples/` | Synthetic property `.md` files used for development, demos and evals |
-| `docs/` | `PLAN.md`, ADRs in `docs/adr/`, agent-skill docs in `docs/agents/` |
+| `docs/` | `PLAN.md`, ADRs in `docs/adr/`, agent-skill docs in `docs/agents/`, README media list in `docs/media/` |
 
 ## Commands
 
