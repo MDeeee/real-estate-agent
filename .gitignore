@@ -1,17 +1,14 @@
 node_modules/
 dist/
-.next/
-out/
 coverage/
 *.tsbuildinfo
-next-env.d.ts
 
 .env
 .env.*
 !.env.example
 
-api/src/generated/
-api/evals/results/
+apps/api/src/generated/
+apps/api/evals/results/
 
 .DS_Store
 Thumbs.db

@@ -1,5 +1,5 @@
 {
-  "description": "Citation grammar shared by the API (api/src/agent/citations.ts) and the web chat (web/src/lib/chat-citations.ts). The two cannot share code, so both test suites replay these cases and must agree. A citation is a bare [slug] (lowercase words joined by hyphens, with a letter in it); a bracket followed by '(' is a markdown link and is never a citation; a citation of an unknown slug is dropped together with the blank before it.",
+  "description": "Citation grammar shared by the API (apps/api/src/agent/citations.ts) and the web chat (apps/web/src/features/chat/chat-citations.ts). The two cannot share code, so both test suites replay these cases and must agree. A citation is a bare [slug] (lowercase words joined by hyphens, with a letter in it); a bracket followed by '(' is a markdown link and is never a citation; a citation of an unknown slug is dropped together with the blank before it.",
   "cases": [
     {
       "name": "valid citations, each reported once in order of first appearance",

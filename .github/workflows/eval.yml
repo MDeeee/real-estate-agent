@@ -6,7 +6,7 @@ on:
     inputs:
       update_baseline:
         description: >-
-          Record api/evals/baseline.json from this run instead of gating on it.
+          Record apps/api/evals/baseline.json from this run instead of gating on it.
           Download the "eval-baseline" artifact afterwards and commit the file.
         type: boolean
         default: false
@@ -111,14 +111,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eval-results
-          path: api/evals/results/latest.json
+          path: apps/api/evals/results/latest.json
           if-no-files-found: ignore
 
-      # Download this artifact and commit it as api/evals/baseline.json.
+      # Download this artifact and commit it as apps/api/evals/baseline.json.
       - name: Upload the new baseline
         if: ${{ inputs.update_baseline }}
         uses: actions/upload-artifact@v4
         with:
           name: eval-baseline
-          path: api/evals/baseline.json
+          path: apps/api/evals/baseline.json
           if-no-files-found: error

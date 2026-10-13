@@ -49,4 +49,5 @@ jobs:
 
       - run: pnpm test
 
+      # Web (Vite) first, then the API; also proves the SPA bundle compiles.
       - run: pnpm build

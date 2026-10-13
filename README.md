@@ -11,7 +11,7 @@ An AI assistant for the Egyptian property market, in Arabic and English. A visit
 - **Refinements and follow-ups**: "cheaper", "in Zayed instead", "tell me more about the second one".
 - **Direct viewing booking** in chat: collects name, Egyptian mobile number and date, validates them, confirms with a reference. No approval step.
 - **Admin dashboard** (`/admin`): upload one or many `.md` files, see indexing status and exact validation errors, re-index, delete, list bookings.
-- **Idempotent ingestion**: the same content hash is a no-op; a changed file replaces its chunks.
+- **Idempotent, safe ingestion**: the same content hash is a no-op. A file whose slug already belongs to a listing with different content is only written after the admin confirms replacing it; then its chunks are replaced.
 - **Swappable LLM**: Claude or any OpenAI-compatible endpoint (Gemini and Groq free tiers work), chosen by env. The app boots without a key; only chat answers `503`.
 - **Eval suite** with a regression gate, runnable locally or from a manual GitHub workflow.
 
@@ -19,9 +19,8 @@ An AI assistant for the Egyptian property market, in Arabic and English. A visit
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] --> Web["Next.js<br/>SSR and route handlers"]
-  Web --> API
-  subgraph API["NestJS API"]
+  Browser["Browser"] --> API
+  subgraph API["NestJS: web app and API on one origin"]
     Agent["Agent graph<br/>LangGraph"]
     Search["Property search"]
     Ingest["Ingestion"]
@@ -38,7 +37,7 @@ flowchart LR
   Agent --> LLM["LLM provider<br/>Claude or OpenAI-compatible"]
 ```
 
-Chat and admin requests go through Next.js: its route handlers and server actions forward them to the API, keep the conversation id in an `HttpOnly` cookie and pass the visitor's IP (signed with a shared key) so rate limits count each visitor.
+One NestJS process serves the built web app (a Vite and React single-page app) and the API from the same origin ([ADR 0005](docs/adr/0005-vite-spa-served-by-nest-over-nextjs.md)). The API keeps the conversation id and the admin session in `HttpOnly` cookies and rate-limits on the real request IP.
 
 ## Agent graph
 
@@ -94,35 +93,68 @@ Retrieval is **filter, then rank** ([ADR 0004](docs/adr/0004-filter-then-rank-re
 | Database | PostgreSQL 17 with pgvector (HNSW index) |
 | AI | LangChain.js core 1.2, LangGraph.js 1.4, `@langchain/anthropic` 1.5, `@langchain/openai` 1.6 |
 | Embeddings | `bge-m3` (1024 dimensions) via local Ollama |
-| Web | Next.js 16 (App Router), React 19, Tailwind CSS 4 |
-| Quality | Vitest 4, oxlint, GitHub Actions |
+| Web | Vite 8, React 19, React Router, TanStack Query, Tailwind CSS 4 |
+| Quality | Vitest, oxlint (api), ESLint (web), GitHub Actions |
 
-## Quick start
+## Getting started
 
-Requirements: Node.js 24, pnpm, Docker and [Ollama](https://ollama.com/download).
+### Prerequisites
+
+- **Node.js 24** and **pnpm 12** (the repo pins `pnpm@12.11.2` in `package.json`).
+- **Docker**, for PostgreSQL 17 with pgvector.
+- **[Ollama](https://ollama.com/download)** with the embedding model: `ollama pull bge-m3`.
+- **An LLM key** for the chat: the Gemini free tier through its OpenAI-compatible endpoint (key at <https://aistudio.google.com/apikey>, setup in [AI chat](#ai-chat)) or an Anthropic key (`ANTHROPIC_API_KEY`). The app boots without one; the filter search and admin work, and only the chat answers `503`.
+
+Every setting is documented in [`.env.example`](.env.example).
+
+### Run it
 
 ```bash
+cp .env.example .env     # then set ADMIN_TOKEN (see "Admin login") and your LLM key
+docker compose up -d     # Postgres + pgvector on host port 5433
 pnpm install
-cp .env.example .env     # then set ADMIN_TOKEN (see .env.example)
-pnpm db:up               # Postgres + pgvector on localhost:5433
-pnpm db:migrate
-ollama pull bge-m3       # embeddings, runs locally
-pnpm seed                # indexes the 20 sample listings (needs Ollama)
+pnpm db:migrate          # create the tables
+pnpm seed                # index the 20 listings in samples/properties (needs Ollama running)
 ```
 
-Add an LLM key so the chat can answer. The free option takes two minutes: create a key at <https://aistudio.google.com/apikey> and put the four lines from [AI chat](#ai-chat) in `.env`. Then:
+Then pick one:
+
+| Mode | Command | Where |
+| --- | --- | --- |
+| Development (hot reload) | `pnpm dev` | The app at <http://localhost:3000> (Vite). It proxies `/api` to the API on <http://localhost:3001> (`PORT` in `.env`). |
+| One process, one port | `pnpm build && pnpm start` | NestJS serves the built web app and the API from <http://localhost:3001> (`PORT` in `.env`). |
+
+Either way the landing page is `/` (chat and filter search), the admin dashboard is `/admin`, and <http://localhost:3001/api/health> is the health check.
+
+`pnpm seed` runs every file in [`samples/properties`](samples/properties) through the real ingestion service. It prints one row per file and a summary, exits non-zero if any file failed, and is idempotent: a second run reports every file as `unchanged`. If Ollama is not running it stops with "Start Ollama and run `ollama pull bge-m3`".
+
+### Running the evals
+
+`pnpm eval` runs the agent against the sample listings with a real model, so it **calls your LLM and uses quota**. Seed first. Details, the baseline gate and the CI workflow are in [Evals](#evals).
+
+## Admin login
+
+There are no user accounts. Visitors use the landing page (chat and filter search) without logging in.
+
+The only login is the **admin dashboard at `/admin`**. Its password is the `ADMIN_TOKEN` value from `.env`: one shared secret, no username. Pick a long random string (at least 32 characters; the API refuses to start with a shorter one), for example:
 
 ```bash
-pnpm dev                 # api on :3001, web on :3000
+openssl rand -hex 32
+# or, without openssl:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-| URL | What |
-| --- | --- |
-| <http://localhost:3000> | Landing page: chat and filter search |
-| <http://localhost:3000/admin> | Admin dashboard (sign in with `ADMIN_TOKEN`) |
-| <http://localhost:3001/api/health> | Health check |
+Put the output after `ADMIN_TOKEN=` in `.env` and restart the API. Never commit `.env`.
 
-`pnpm seed` starts the API's modules without an HTTP server and runs every file in [`samples/properties`](samples/properties) through the real ingestion service. It prints one row per file and a summary, exits non-zero if any file failed, and is idempotent: a second run reports every file as `unchanged`. If Ollama is not running it stops with "Start Ollama and run `ollama pull bge-m3`".
+Open `/admin`, paste the token and press **Log in**. What an admin can do:
+
+- **Upload** `.md` listings (YAML frontmatter plus a markdown body; the format is in [Listing file format](#listing-file-format) and complete examples are in [`samples/properties`](samples/properties)).
+- **Re-index** a document, or **delete** it.
+- **View bookings** made in the chat.
+
+A listing's identity is the `slug` in its frontmatter. Uploading a file whose slug already exists is safe: if the content is identical it is skipped (`unchanged`), and if it differs the API writes nothing and the dashboard asks, per file, whether to replace the existing listing (Replace, Skip, Replace all, Skip all). Only approved files are uploaded again, and an approval names the exact stored version you saw: if the listing changed in the meantime, the file comes back as a conflict again and nothing is overwritten. Replacing keeps the listing's bookings.
+
+**Log out** (top right) ends the session. The session is an `HttpOnly` cookie set by the API after a successful login (`SameSite=Strict`, scoped to `/api/admin`, `Secure` in production): the page's scripts cannot read it, it never contains the token itself (it is signed with a key derived from it), and it expires after 8 hours. Changing `ADMIN_TOKEN` or restarting the API signs everyone out, because the signing key is derived at startup. Logging out clears the cookie in the browser but cannot revoke a copy of it: a copied cookie stays valid until it expires (8 hours) or the API restarts. Login attempts are limited to 5 per minute per IP, and so are wrong `x-admin-token` values on any admin endpoint (the 6th answers `429` with `Retry-After`).
 
 ## AI chat
 
@@ -140,7 +172,7 @@ OPENAI_COMPAT_API_KEY=<your key>
 OPENAI_COMPAT_MODEL=gemini-3.5-flash-lite
 ```
 
-3. Restart `pnpm dev`. The web app needs `INTERNAL_API_KEY` set to the same value as the API and `TRUSTED_PROXY_HOPS` set to your proxy count (see `.env.example` and Deployment notes) so chat rate limits count each visitor, not the web server.
+3. Restart `pnpm dev` (or `pnpm start`). Behind a reverse proxy also set `TRUSTED_PROXY_HOPS` to your proxy count (see `.env.example` and Deployment notes) so chat rate limits count each visitor.
 
 `gemini-3.5-flash-lite` is the default: it recorded the committed eval baseline and had enough free-tier headroom for two full eval runs plus a browser pass (over 100 calls in one day). The free tier caps requests per day for each model (20 per day for `gemini-3.5-flash` when this was tested; the larger `3.7`/`3.8` flash models hung or returned 503 under load), so to switch model change `OPENAI_COMPAT_MODEL` and restart; the eval gate refuses a model other than the baseline's until you re-record it. Free-tier latency varies from about 1 to 10 seconds per model call, and a search turn (several calls) can take 30 to 50 seconds, so one chat turn is allowed `CHAT_TURN_TIMEOUT_MS` (default `90000`) before it is rolled back.
 
@@ -154,19 +186,25 @@ LangSmith tracing needs no code: set `LANGSMITH_TRACING=true`, `LANGSMITH_API_KE
 
 ### Limits
 
-`POST /api/chat` is limited to `CHAT_THROTTLE_LIMIT` (default 10) requests per `THROTTLE_TTL_SECONDS` per client IP, to `CHAT_GLOBAL_LIMIT_PER_MINUTE` (default 30) requests per minute across all visitors, messages to 1000 characters, request bodies to 16 KB and each turn to `CHAT_TURN_TIMEOUT_MS` (default 90 seconds). Over a limit the API answers `429` with a friendly JSON message and a `Retry-After` header (seconds), which the web route passes through.
+`POST /api/chat` is limited to `CHAT_THROTTLE_LIMIT` (default 10) requests per `THROTTLE_TTL_SECONDS` per client IP, to `CHAT_GLOBAL_LIMIT_PER_MINUTE` (default 30) requests per minute across all visitors, messages to 1000 characters, request bodies to 16 KB and each turn to `CHAT_TURN_TIMEOUT_MS` (default 90 seconds). Over a limit the API answers `429` with a friendly JSON message and a `Retry-After` header (seconds), which the web app turns into a message such as "wait 17 seconds".
 
 A turn that fails, times out or is stopped by the visitor is rolled back: the stored conversation looks as if the message had never been sent, so a retry never duplicates it. Stored history is capped at the last 20 messages per conversation.
 
 ## Admin usage
 
-Open <http://localhost:3000/admin>, sign in with `ADMIN_TOKEN`, and upload one or more `.md` files (up to 10 per request, 200 KB each). Each document shows `PENDING`, `INDEXED` or `FAILED`; a failed one shows the exact validation error, and every document can be re-indexed or deleted. Bookings made in chat are listed on the same dashboard.
+Sign in at `/admin` (see [Admin login](#admin-login)) and upload one or more `.md` files (200 KB each; the dashboard sends them 5 per request, the API accepts up to 10). Each document shows `PENDING`, `INDEXED` or `FAILED`; a failed one shows the exact validation error, and every document can be re-indexed or deleted. Bookings made in chat are listed on the same dashboard.
 
-The same endpoint works from a script, authenticated with the `x-admin-token` header:
+The same endpoint works from a script, authenticated with the `x-admin-token` header. State-changing requests must also carry `X-Requested-With: fetch` (the CSRF guard). The answer has one result per file: `created`, `updated`, `unchanged`, `failed` or `conflict`. A `conflict` (the slug belongs to a listing with different content) writes nothing and describes the listing it would overwrite; repeat the upload with one `replacements` field per listing you approve. Each is a JSON object with the `slug` and the `existingContentHash` that the conflict reported (at most 10); if the stored listing no longer has that hash, you get a conflict again with the fresh details:
 
 ```bash
-curl -H "x-admin-token: $ADMIN_TOKEN" \
+curl -H "x-admin-token: $ADMIN_TOKEN" -H "X-Requested-With: fetch" \
   -F "files=@samples/properties/zamalek-apartment-rent.md" \
+  http://localhost:3001/api/admin/documents
+
+# after a conflict, replace the listing that owns the slug
+curl -H "x-admin-token: $ADMIN_TOKEN" -H "X-Requested-With: fetch" \
+  -F "files=@samples/properties/zamalek-apartment-rent.md" \
+  -F 'replacements={"slug":"zamalek-apartment-rent","existingContentHash":"<hash from the conflict>"}' \
   http://localhost:3001/api/admin/documents
 ```
 
@@ -207,11 +245,11 @@ Unknown keys are rejected, so a typo surfaces as an error instead of silently mi
 ## Testing
 
 ```bash
-pnpm test        # api (Vitest) and web (node:test)
+pnpm test        # api and web, both Vitest
 ```
 
-- **API: 431 tests in Vitest.** 345 are unit tests (graph transitions with a fake model and an in-memory checkpointer, citations, booking validation, listing references, schemas, eval scoring). 86 are integration tests against a real Postgres: ingestion, admin, search, retrieval, SSE chat and booking. They use a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI.
-- **Web: 20 tests** with the Node test runner.
+- **API: 648 tests in Vitest.** 531 are unit tests (graph transitions with a fake model and an in-memory checkpointer, citations, booking validation, listing references, schemas, eval scoring). 117 are integration tests against a real Postgres: ingestion, admin, search, retrieval, SSE chat, cookies and booking. They use a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI.
+- **Web: 117 tests in Vitest** with Testing Library: pure helpers (citations, URL and filter mapping, stream events, the HTTP client), the upload and replace-confirmation flow, and the admin route guard.
 - No test calls a real LLM; the model sits behind an `AgentModel` port that tests replace with a fake. Quality against a real model is measured by the evals below.
 
 `pnpm lint`, `pnpm typecheck` and `pnpm build` cover both apps; CI runs all four on every push and pull request.
@@ -228,7 +266,7 @@ pnpm eval --update-baseline      # record the current metrics as the baseline
 pnpm eval --allow-model-mismatch # compare against a baseline from another model
 ```
 
-Each case lists the conversation and what the **last** reply must satisfy (`api/evals/cases.json`). Only what the last turn's intent produced is scored; state left over from earlier turns is ignored. For a `search` turn that is the intent, a subset of filters that must match, at least one expected listing in the top 5, and listings that must not appear. For a `details` turn it is the listing the reference ("the second one", "the townhouse") resolved to (`focusSlug`, one slug or several when the earlier ranking is not deterministic). Every case also states whether the reply must be a refusal. Cases run one after another, each on a fresh in-memory conversation, so the dev database's conversations are never touched; bookings are disabled outright, so a case cannot create one.
+Each case lists the conversation and what the **last** reply must satisfy (`apps/api/evals/cases.json`). Only what the last turn's intent produced is scored; state left over from earlier turns is ignored. For a `search` turn that is the intent, a subset of filters that must match, at least one expected listing in the top 5, and listings that must not appear. For a `details` turn it is the listing the reference ("the second one", "the townhouse") resolved to (`focusSlug`, one slug or several when the earlier ranking is not deterministic). Every case also states whether the reply must be a refusal. Cases run one after another, each on a fresh in-memory conversation, so the dev database's conversations are never touched; bookings are disabled outright, so a case cannot create one.
 
 | Metric | Definition |
 | --- | --- |
@@ -241,9 +279,9 @@ Each case lists the conversation and what the **last** reply must satisfy (`api/
 | Refusal correctness | The reply is the standard refusal exactly when the case expects one |
 | Avg conversation latency, total tokens | Summed over **all** turns of a case, not just the last one. Reported, not gated (they depend on provider and load) |
 
-The run prints a table per case and a totals table, and writes `api/evals/results/latest.json` (git-ignored).
+The run prints a table per case and a totals table, and writes `apps/api/evals/results/latest.json` (git-ignored).
 
-**Baseline gate.** `api/evals/baseline.json` holds the committed metrics together with the provider and model that produced them. Rules for a full run:
+**Baseline gate.** `apps/api/evals/baseline.json` holds the committed metrics together with the provider and model that produced them. Rules for a full run:
 
 - A quality metric that falls more than `EVAL_TOLERANCE` (default `0.05`) below the baseline fails the run (exit 1). So does a metric that is a number in the baseline but could not be measured now.
 - If the baseline's provider or model differs from the current run, the gate refuses to compare and exits 1 with a message, because the numbers are not comparable. Re-record the baseline, or pass `--allow-model-mismatch` to compare anyway (a warning is printed).
@@ -270,41 +308,45 @@ Without an LLM configured, `pnpm eval` prints `Eval skipped: no LLM configured (
 | Variable | `CLAUDE_MODEL`, `LLM_STRUCTURED_METHOD` | No | |
 | Variable | `EVAL_DELAY_MS`, `EVAL_TOLERANCE`, `EVAL_RETRY_WAIT_MS` | No | |
 
-**Recording the baseline in CI.** The runner cannot commit, so run the workflow with the `update_baseline` input ticked. It runs `pnpm eval --update-baseline` and uploads `api/evals/baseline.json` as the `eval-baseline` artifact. Download it and commit it as `api/evals/baseline.json`. Until a baseline is committed, every normal (gated) run in CI fails with `No baseline yet`.
+**Recording the baseline in CI.** The runner cannot commit, so run the workflow with the `update_baseline` input ticked. It runs `pnpm eval --update-baseline` and uploads `apps/api/evals/baseline.json` as the `eval-baseline` artifact. Download it and commit it as `apps/api/evals/baseline.json`. Until a baseline is committed, every normal (gated) run in CI fails with `No baseline yet`.
 
-> Status: `api/evals/baseline.json` was recorded on 2026-10-12 with `gemini-3.5-flash-lite` (all seven quality metrics at 100 percent on the 13 cases). Re-record it when you change the model.
+> Status: `apps/api/evals/baseline.json` was recorded on 2026-10-12 with `gemini-3.5-flash-lite` (all seven quality metrics at 100 percent on the 13 cases). Re-record it when you change the model.
 
 ## Deployment notes
 
-- **Client IP and `TRUSTED_PROXY_HOPS`.** Per-visitor rate limiting needs the visitor's IP at the API. The Next.js server reads it from `x-forwarded-for` and forwards it, signed with `INTERNAL_API_KEY`, in `x-client-ip`. A visitor controls the beginning of `x-forwarded-for` (they can send any value) and every proxy appends the address it saw on the right, so only the right-hand entries added by your own proxies can be trusted. Next.js leaves a present `x-forwarded-for` untouched and does not append the connecting address (checked on Next 16.4, `next dev` and `next start`). With `TRUSTED_PROXY_HOPS=N` (the number of reverse proxies you run in front of Next, default `0`) the visitor is the entry `N` from the right: `nginx -> next` is `1`, `cdn -> nginx -> next` is `2`. With `0` nothing is trusted: no IP is forwarded and all visitors share one per-IP budget (safe, but coarse). Make your outermost proxy append the connecting address (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`) and do not expose Next.js directly to the internet when `TRUSTED_PROXY_HOPS` is above `0`. `x-real-ip` is never used.
+- **Client IP and `TRUSTED_PROXY_HOPS`.** Per-visitor rate limiting uses `request.ip`, which Express derives from `X-Forwarded-For` only when told to trust proxies. A visitor controls the beginning of that header (they can send any value) and every proxy appends the address it saw on the right, so only the right-hand entries added by your own proxies can be trusted. With `TRUSTED_PROXY_HOPS=N` (the number of reverse proxies you run in front of the API, default `0`) the visitor is the entry `N` from the right: `nginx -> api` is `1`, `cdn -> nginx -> api` is `2`. With `0` the header is ignored and every request counts as its socket address (safe; behind a proxy that means one shared budget). Make your outermost proxy append the connecting address (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), let it pass SSE responses unbuffered (the API sends `X-Accel-Buffering: no`), and do not expose the API directly to the internet when `TRUSTED_PROXY_HOPS` is above `0`. `x-real-ip` is never used.
 - **Global chat budget.** `CHAT_GLOBAL_LIMIT_PER_MINUTE` counts every chat request regardless of IP, so it bounds LLM spend even if the per-IP limit is bypassed or one NAT hides many visitors. Size it to your provider quota. Throttle counters are kept in memory.
 - **Single API instance.** The "one reply at a time per conversation" lock and the throttle counters live in the API process. Run one API instance, or move both to shared storage (for example Redis) before scaling out; with several instances a visitor could run two turns of the same conversation at once.
-- **Conversation cookie.** The conversation id is a bearer token for the stored history, so the browser never sees it: the Next route keeps it in the `chat_thread` cookie (`HttpOnly`, `SameSite=Lax`, `Secure` in production, path `/api/chat`, 30 days). A missing or invalid cookie starts a new conversation, and "New chat" (`POST /api/chat/reset`) rotates it. Serve production over HTTPS so the `Secure` cookie is stored. The API logs only a short hash of the id, and the history endpoint masks phone numbers (`010****4567`).
+- **Conversation cookie.** The conversation id is a bearer token for the stored history, so the browser never sees it: the API keeps it in the `chat_thread` cookie (`HttpOnly`, `SameSite=Lax`, `Secure` in production, path `/api/chat`, 30 days). A missing or invalid cookie starts a new conversation (issued with the first message), and "New chat" (`POST /api/chat/reset`) rotates it. State-changing requests need the `X-Requested-With: fetch` header, which the web app sends; there is no CORS configuration, so other sites cannot read or call the API from a browser. Serve production over HTTPS so the `Secure` cookie is stored. The API logs only a short hash of the id, and the history endpoint masks phone numbers (`010****4567`).
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev` | Run api and web in watch mode |
+| `pnpm dev` | Run the API and the web dev server together (hot reload) |
+| `pnpm build` | Build the web app, then the API |
+| `pnpm start` | Run the built API, which also serves the built web app |
 | `pnpm db:up` / `pnpm db:down` | Start / stop the database container |
 | `pnpm db:migrate` | Apply Prisma migrations |
 | `pnpm seed` | Index the sample listings through the real ingestion service |
 | `pnpm eval` | Run the eval suite (needs an LLM; see Evals) |
-| `pnpm lint` / `pnpm typecheck` / `pnpm test` / `pnpm build` | Quality gates for both apps |
+| `pnpm lint` / `pnpm typecheck` / `pnpm test` | Quality gates for both apps |
 
-To create a new migration run `pnpm --filter api db:migrate:create`. Prisma cannot model the HNSW index on `Chunk.embedding`, so it proposes dropping it: remove that `DROP INDEX` statement from the generated SQL.
+To create a new migration run `pnpm db:migrate:create`. Prisma cannot model the HNSW index on `Chunk.embedding`, so it proposes dropping it: remove that `DROP INDEX` statement from the generated SQL.
 
 ## Project structure
 
 ```text
 .
-├── api/                    NestJS API
-│   ├── src/                agent, admin, ingestion, properties, bookings, llm, config
-│   ├── prisma/             schema and migrations
-│   ├── scripts/            seed command
-│   └── evals/              eval cases, runner, scoring, baseline
-├── web/                    Next.js app
-│   └── src/                app routes, components, lib
+├── apps/
+│   ├── api/                NestJS API (also serves the built web app)
+│   │   ├── src/            agent, admin, ingestion, properties, bookings, llm, config, web
+│   │   ├── prisma/         schema and migrations
+│   │   ├── scripts/        seed command
+│   │   └── evals/          eval cases, runner, scoring, baseline
+│   └── web/                Vite + React single-page app
+│       └── src/            app (router, layouts), features (search, chat, admin), shared
+├── contracts/              fixtures shared by api and web tests
 ├── samples/properties/     20 synthetic listings (.md)
 ├── docs/                   PLAN.md, adr/, agents/, media/ (demo GIF and screenshots, added by the owner)
 ├── .github/workflows/      ci.yml, eval.yml (manual)
@@ -319,6 +361,7 @@ To create a new migration run `pnpm --filter api db:migrate:create`. Prisma cann
 | [0002](docs/adr/0002-own-chunk-table-over-langchain-pgvectorstore.md) | Own chunk table over LangChain PGVectorStore |
 | [0003](docs/adr/0003-langgraph-for-agent-flow.md) | LangGraph for the agent flow |
 | [0004](docs/adr/0004-filter-then-rank-retrieval.md) | Filter then rank retrieval |
+| [0005](docs/adr/0005-vite-spa-served-by-nest-over-nextjs.md) | Vite SPA served by NestJS, replacing Next.js |
 
 More: [docs/PLAN.md](docs/PLAN.md) for scope and milestones, [AGENTS.md](AGENTS.md) for contributor and coding-agent conventions.
 

@@ -10,14 +10,16 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter api --filter web dev",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "start": "pnpm --filter api start",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:migrate": "pnpm --filter api db:migrate",
+    "db:migrate:create": "pnpm --filter api db:migrate:create",
     "seed": "pnpm --filter api seed",
     "eval": "pnpm --filter api eval",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "build": "pnpm -r build"
+    "test": "pnpm -r test"
   }
 }
