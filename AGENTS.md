@@ -36,7 +36,7 @@ Run from the repo root.
 | Dev (api + web) | `pnpm dev`: API on `PORT` (3001), Vite on 3000 proxying `/api` |
 | Build | `pnpm build` (web, then api) |
 | Run built app | `pnpm start`: NestJS serves the SPA and the API on `PORT` |
-| Test | `pnpm test` (Vitest in both apps) |
+| Test | `pnpm test` (Vitest in both apps; unit tests cover the AI pipeline only, app plumbing is covered by typecheck, lint, build and the evals) |
 | Lint | `pnpm lint` (oxlint in api, ESLint in web) |
 | Typecheck | `pnpm typecheck` |
 

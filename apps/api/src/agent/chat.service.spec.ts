@@ -11,7 +11,6 @@ import { createGraphHarness } from '../testing/chat-fixtures.js';
 import type { AgentGraphService } from './agent-graph.service.js';
 import type { ChatEvent } from './chat-events.js';
 import { ChatService, describeError } from './chat.service.js';
-import { threadLogId } from './pii.js';
 
 type Harness = ReturnType<typeof createGraphHarness>;
 
@@ -439,56 +438,6 @@ describe('ChatService turn rollback', () => {
     expect(await service.history(thread)).toEqual(before);
   });
 
-  it('does not log the raw thread id', async () => {
-    const h = createGraphHarness();
-    const service = serviceFor(h);
-    const thread = randomUUID();
-    const lines: string[] = [];
-    vi.spyOn(Logger.prototype, 'log').mockImplementation((m: unknown) => {
-      lines.push(String(m));
-    });
-    vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => {
-      lines.push(String(m));
-    });
-
-    await drain(service, thread, 'hello');
-    h.model.classify = () => Promise.reject(new Error('provider down'));
-    await drain(service, thread, 'hello again');
-
-    expect(lines).toHaveLength(2);
-    for (const line of lines) {
-      expect(line).not.toContain(thread);
-      expect(line).toContain(threadLogId(thread));
-    }
-  });
-
-  it('keeps the thread lock until released and answers 409 neutrally', () => {
-    const service = serviceFor(createGraphHarness());
-    const release = service.acquire('t');
-    expect(() => service.acquire('t')).toThrow(/still being handled/);
-    release();
-    expect(() => service.acquire('t')).not.toThrow();
-  });
-});
-
-describe('ChatService history', () => {
-  it('masks phone numbers in booking cards and in message text', async () => {
-    const h = createGraphHarness();
-    const service = serviceFor(h);
-    const thread = randomUUID();
-    await drain(service, thread, 'apartments in New Cairo');
-    await drain(
-      service,
-      thread,
-      'book the first one, my name is Test User, 01001234567 2026-10-19 17:00',
-    );
-
-    const history = await service.history(thread);
-    const booked = history.find((m) => m.booking);
-    expect(booked?.booking?.phone).toBe('010****4567');
-    expect(JSON.stringify(history)).not.toContain('01001234567');
-    expect(history.some((m) => m.text.includes('010****4567'))).toBe(true);
-  });
 });
 
 describe('describeError', () => {

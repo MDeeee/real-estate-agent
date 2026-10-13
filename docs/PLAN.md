@@ -75,7 +75,7 @@ Cross-cutting:
 - [x] `BookingsService.create`: CONFIRMED immediately, idempotent per thread, property and date (unique index)
 - [x] `POST /api/chat` (SSE) and `GET /api/chat/:threadId`, stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
 - [x] Web: `/api/chat` pass-through route, chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs
-- [x] Tests: graph transitions with a fake model and `MemorySaver`, booking validation, citations, listing references, SSE and booking integration tests
+- [x] Tests: graph transitions with a fake model and `MemorySaver`, booking validation, citations, listing references, SSE and booking integration tests. Policy: unit tests cover the AI pipeline only; app plumbing is covered by typecheck, lint, build and the evals
 
 ## M4 delivered
 

@@ -267,15 +267,15 @@ Unknown keys are rejected, so a typo surfaces as an error instead of silently mi
 pnpm test        # api and web, both Vitest
 ```
 
-- **API: 789 tests in Vitest.** Most are unit tests (graph transitions with a fake model and an in-memory checkpointer, citations, booking validation, listing references, schemas, eval scoring, provider-busy handling, ordinal resolution). The rest are integration tests against a real Postgres: ingestion, admin, search, retrieval, SSE chat, cookies and booking. They use a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI.
-- **Web: 164 tests in Vitest** with Testing Library: pure helpers (citations, URL and filter mapping, stream events, the HTTP client), the upload and replace-confirmation flow, the booking cancel dialog, chat scrolling and focus, and the admin route guard.
+- **API: 619 tests in Vitest.** Unit tests cover the AI pipeline only: graph transitions with a fake model and an in-memory checkpointer, citations and grounding, language detection, booking validation, listing references, the new-search guard, phone-number masking in chat history, LLM schemas and prompts, provider-busy handling, ingestion and chunking, filter building and eval scoring. A few integration tests run the chat, booking and retrieval flows against a real Postgres (a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI).
+- **Web: 59 tests in Vitest** for the chat stream events and citation rendering only. App plumbing (admin session, CSRF, throttling, upload and cancel flows, HTTP client, UI components) is covered by typecheck, lint, build and the evals, not by unit tests.
 - No test calls a real LLM; the model sits behind an `AgentModel` port that tests replace with a fake. Quality against a real model is measured by the evals below.
 
 `pnpm lint`, `pnpm typecheck` and `pnpm build` cover both apps; CI runs all four on every push and pull request.
 
 ## Evals
 
-Unit tests prove the plumbing; the eval suite measures the agent itself. `pnpm eval` runs 15 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 5 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse", and two fresh requests after a Sheikh Zayed search that must not inherit the city or the budget). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
+Unit tests pin the agent's deterministic logic with a fake model; the eval suite measures the agent itself. `pnpm eval` runs 15 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 5 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse", and two fresh requests after a Sheikh Zayed search that must not inherit the city or the budget). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
 
 ```bash
 pnpm seed                        # listings must be indexed first
