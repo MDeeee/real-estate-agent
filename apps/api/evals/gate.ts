@@ -113,3 +113,31 @@ export function describeGate(
     }
   }
 }
+
+export type BaselineDecision =
+  { write: true } | { write: false; reasons: string[] };
+
+/**
+ * Whether `--update-baseline` may record this run. Only a clean run becomes
+ * the reference: every case must pass (a crash is a failure) and the metrics
+ * must not regress against the baseline being replaced. A first baseline and a
+ * deliberate re-record for another model have nothing comparable, so they are
+ * not blocked by the gate.
+ */
+export function decideBaselineUpdate(input: {
+  failedCases: readonly string[];
+  gate: GateResult;
+}): BaselineDecision {
+  const reasons: string[] = [];
+  if (input.failedCases.length > 0) {
+    reasons.push(
+      `${input.failedCases.length} case(s) did not pass: ${input.failedCases.join(', ')}`,
+    );
+  }
+  if (input.gate.kind === 'compared' && input.gate.regressions.length > 0) {
+    reasons.push(
+      `the regression gate failed on ${input.gate.regressions.map((r) => r.metric).join(', ')}`,
+    );
+  }
+  return reasons.length === 0 ? { write: true } : { write: false, reasons };
+}

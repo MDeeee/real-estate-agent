@@ -112,11 +112,15 @@ export function describeFailures(result: CaseResult): string[] {
     const present = (expect.noneOfSlugs ?? []).filter((slug) =>
       retrievedSlugs?.includes(slug),
     );
-    lines.push(
-      retrievedSlugs === null
-        ? `${id}: exclusion expected, but there was no search this turn`
-        : `${id}: excluded listing(s) returned: ${present.join(', ')}`,
-    );
+    if (retrievedSlugs === null) {
+      lines.push(
+        `${id}: exclusion expected, but there was no search this turn`,
+      );
+    } else if (present.length > 0) {
+      lines.push(`${id}: excluded listing(s) returned: ${present.join(', ')}`);
+    } else {
+      lines.push(`${id}: no listing expected, got ${retrieved}`);
+    }
   }
   if (score.reference === false) {
     lines.push(
@@ -131,8 +135,14 @@ export function describeFailures(result: CaseResult): string[] {
     );
   }
   if (!score.refusal) {
+    const wrongLanguage =
+      observed !== null &&
+      observed.refused === (expect.expectRefusal ?? false) &&
+      expect.replyLanguage !== undefined;
     lines.push(
-      `${id}: refusal expected ${expect.expectRefusal ?? false}, got ${observed?.refused ?? 'none'}`,
+      wrongLanguage
+        ? `${id}: reply expected in "${expect.replyLanguage}", got "${observed.reply.slice(0, 80)}"`
+        : `${id}: refusal expected ${expect.expectRefusal ?? false}, got ${observed?.refused ?? 'none'}`,
     );
   }
   return lines;

@@ -23,21 +23,29 @@ async function sampleSlugs(): Promise<Set<string>> {
 describe('cases.json', () => {
   it('is valid and has the planned mix', async () => {
     const cases = await loadCases(resolve(import.meta.dirname, 'cases.json'));
-    expect(cases).toHaveLength(15);
+    expect(cases).toHaveLength(22);
 
     const multiTurn = cases.filter(({ turns }) => turns.length > 1);
     const singleTurn = cases.filter(({ turns }) => turns.length === 1);
     const arabic = singleTurn.filter(({ turns }) =>
       turns.some((turn) => ARABIC.test(turn)),
     );
-    expect(multiTurn).toHaveLength(5);
-    expect(arabic).toHaveLength(4);
-    expect(singleTurn.length - arabic.length).toBe(6);
+    // Single-turn English cases include the Arabizi and the no-results one.
+    expect(multiTurn).toHaveLength(8);
+    expect(arabic).toHaveLength(6);
+    expect(singleTurn.length - arabic.length).toBe(8);
 
-    expect(cases.filter(({ expect: e }) => e.expectRefusal)).toHaveLength(1);
+    expect(cases.filter(({ expect: e }) => e.expectRefusal)).toHaveLength(2);
     expect(cases.filter(({ expect: e }) => e.intent === 'book')).toHaveLength(
-      1,
+      2,
     );
+    expect(cases.filter(({ expect: e }) => e.expectNoHits)).toHaveLength(1);
+    expect(
+      cases.filter(({ expect: e }) => e.replyLanguage === 'ar'),
+    ).toHaveLength(3);
+    expect(
+      cases.filter(({ expect: e }) => e.replyLanguage === 'en'),
+    ).toHaveLength(1);
   });
 
   it('only names listings that exist in samples/properties', async () => {
@@ -100,6 +108,22 @@ describe('parseCases', () => {
     expect(many?.expect.focusSlug).toEqual(['a-b', 'c-d']);
     expect(() =>
       parseCases([{ ...valid, expect: { intent: 'details', focusSlug: [] } }]),
+    ).toThrow();
+  });
+
+  it('accepts expectNoHits and a reply language, and rejects an unknown language', () => {
+    const [parsed] = parseCases([
+      {
+        ...valid,
+        expect: { intent: 'search', expectNoHits: true, replyLanguage: 'ar' },
+      },
+    ]);
+    expect(parsed?.expect.expectNoHits).toBe(true);
+    expect(parsed?.expect.replyLanguage).toBe('ar');
+    expect(() =>
+      parseCases([
+        { ...valid, expect: { intent: 'search', replyLanguage: 'fr' } },
+      ]),
     ).toThrow();
   });
 

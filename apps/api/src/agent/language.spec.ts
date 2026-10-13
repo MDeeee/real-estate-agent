@@ -75,8 +75,33 @@ describe('detectLanguage', () => {
     });
   });
 
-  it('stays English in an English conversation, whatever the message looks like', () => {
+  describe('Arabizi as the first message', () => {
+    it.each([
+      '3ayez sha2a lel egar fel zamalek',
+      '7aga hadya2 fe el Tagamoa el khames',
+      'ezayak momken a3rf el se3r',
+    ])('%s => Arabic', (text) => {
+      expect(detectLanguage(text)).toBe('ar');
+      expect(detectLanguage(text, 'en')).toBe('ar');
+    });
+
+    it.each([
+      '3br apartment in 5th settlement',
+      '2 bed flat under 3m',
+      'villa with 4 rooms',
+      'show me 3bd apartments, 2 baths, 150sqm',
+      'Tamam thanks, I want a villa in Sheikh Zayed',
+    ])('English (%s) stays English', (text) => {
+      expect(detectLanguage(text)).toBe('en');
+    });
+
+    it('a single Arabizi word is not enough outside an Arabic conversation', () => {
+      expect(detectLanguage('3ayez a villa in New Cairo')).toBe('en');
+    });
+  });
+
+  it('stays English in an English conversation for a lone Arabizi word or short message', () => {
     expect(detectLanguage('ok', 'en')).toBe('en');
-    expect(detectLanguage('3ayez sha2a fe New Cairo', 'en')).toBe('en');
+    expect(detectLanguage('3ayez a villa in New Cairo', 'en')).toBe('en');
   });
 });

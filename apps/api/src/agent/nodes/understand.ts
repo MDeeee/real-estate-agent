@@ -27,7 +27,7 @@ import {
   resolveCandidate,
   resolveOrdinalFromMessage,
 } from '../listing-reference.js';
-import { dropCarriedOver } from '../new-search-guard.js';
+import { dropCarriedOver, restatesFreshRequest } from '../new-search-guard.js';
 import { callOptions, emit, isAborted, recentTurns } from './node-support.js';
 
 /** One structured call, plus one retry when its output is invalid. */
@@ -232,6 +232,23 @@ export function createUnderstandNode(deps: AgentGraphDeps) {
 
     let result = await attempt(false);
     if (
+      result.understanding.intent === 'search' &&
+      result.understanding.searchMode === 'refine' &&
+      result.filters &&
+      restatesFreshRequest({
+        previousFilters: state.filters,
+        filters: result.filters,
+        latestMessage: latestText,
+      })
+    ) {
+      // A complete request that restates sale/rent and names a type is a new
+      // search even when the model called it a refinement; the carry-over
+      // guard below drops what it copied from the old search.
+      result = {
+        ...result,
+        understanding: { ...result.understanding, searchMode: 'new' },
+      };
+    } else if (
       result.understanding.intent === 'search' &&
       result.understanding.searchMode === 'refine' &&
       result.filters &&

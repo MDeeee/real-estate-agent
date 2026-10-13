@@ -236,5 +236,96 @@
       "intent": "details",
       "focusSlug": "sheikh-zayed-townhouse-sale"
     }
+  },
+  {
+    "id": "ar-off-topic-poem",
+    "description": "Egyptian Arabic: off-topic creative request, the refusal must come back in Arabic",
+    "turns": ["اكتبلي قصيدة عن الأهلي"],
+    "expect": {
+      "intent": "off_topic",
+      "expectRefusal": true,
+      "replyLanguage": "ar"
+    }
+  },
+  {
+    "id": "arabizi-apartment-rent-zamalek",
+    "description": "Arabizi (Arabic written in Latin letters): apartment rental in a city that has one",
+    "turns": ["3ayez sha2a lel egar fel zamalek"],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "city": "Zamalek",
+        "type": "apartment",
+        "listing": "RENT"
+      },
+      "anyOfSlugs": ["zamalek-apartment-rent"],
+      "noneOfSlugs": ["zamalek-apartment-sale"],
+      "replyLanguage": "ar"
+    }
+  },
+  {
+    "id": "multi-ar-second-one-details",
+    "description": "Multi-turn Arabic: 'التانية' (the second one) must resolve against the listings just shown",
+    "turns": ["عايز عقارات للبيع في الشيخ زايد", "قولي تفاصيل التانية"],
+    "expect": {
+      "intent": "details",
+      "focusSlug": ["sheikh-zayed-duplex-sale", "sheikh-zayed-townhouse-sale"]
+    }
+  },
+  {
+    "id": "en-no-results-honest",
+    "description": "English: nothing in the data matches; the search must return no listing and the reply must not invent one",
+    "turns": ["Villa for sale in Zamalek under 2 million EGP."],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "city": "Zamalek",
+        "type": "villa",
+        "listing": "SALE",
+        "priceMax": 2000000
+      },
+      "expectNoHits": true
+    }
+  },
+  {
+    "id": "multi-refine-city-only",
+    "description": "Multi-turn: adding only a city must keep the earlier type, listing and budget",
+    "turns": [
+      "I want an apartment for sale, up to 8 million EGP.",
+      "Only in New Cairo please."
+    ],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "city": "New Cairo",
+        "type": "apartment",
+        "listing": "SALE",
+        "priceMax": 8000000
+      },
+      "anyOfSlugs": ["new-cairo-fifth-settlement-apartment-sale"],
+      "noneOfSlugs": ["capital-apartment-sale", "october-apartment-sale"]
+    }
+  },
+  {
+    "id": "multi-booking-past-date",
+    "description": "Multi-turn: booking 'the first one' for a past date; the conversation stops before name and phone, nothing is booked",
+    "turns": [
+      "Show me chalets in the North Coast.",
+      "Book a viewing of the first one yesterday at 5pm."
+    ],
+    "expect": {
+      "intent": "book",
+      "focusSlug": ["north-coast-chalet-rent", "north-coast-chalet-sale"],
+      "replyLanguage": "en"
+    }
+  },
+  {
+    "id": "ar-greeting-smalltalk",
+    "description": "Egyptian Arabic: a bare greeting is small talk, answered in Arabic without a search",
+    "turns": ["ازيك"],
+    "expect": {
+      "intent": "smalltalk",
+      "replyLanguage": "ar"
+    }
   }
 ]

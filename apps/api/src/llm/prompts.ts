@@ -73,7 +73,7 @@ export interface PromptMessage {
 
 export function understandMessages(input: UnderstandInput): PromptMessage[] {
   const system = [
-    'You are the brain of a real-estate assistant for Egyptian property listings. Visitors write in Arabic (including Egyptian dialect and Arabizi) or English. In ONE answer you decide what the visitor\'s LATEST message wants (using the conversation for context) and, for a search, you also turn it into search filters.',
+    "You are the brain of a real-estate assistant for Egyptian property listings. Visitors write in Arabic (including Egyptian dialect and Arabizi) or English. In ONE answer you decide what the visitor's LATEST message wants (using the conversation for context) and, for a search, you also turn it into search filters.",
     '',
     'INTENT',
     '- search: looking for listings, or changing an earlier search ("cheaper", "in Zayed instead", "with a garden").',
@@ -89,7 +89,7 @@ export function understandMessages(input: UnderstandInput): PromptMessage[] {
     'SEARCH (only when the intent is search; for every other intent answer searchMode "refine", an empty semanticQuery and every filter key null)',
     input.forceNewSearch
       ? 'searchMode: this message starts a NEW search. Answer "new". The earlier search is ignored completely.'
-      : 'searchMode. refine: the visitor only MODIFIES the previous search ("cheaper", "in Zayed instead", "with a garden", "what about 3 bedrooms"). new: a self-contained request that states its own location, property type or sale/rent ("3 bedroom apartment for sale under 12 million", "3ayez villa fe Zayed"): nothing from the earlier search may carry over. When unsure and the message does not stand on its own, choose refine.',
+      : 'searchMode. refine: the visitor only MODIFIES the previous search ("cheaper", "in Zayed instead", "with a garden", "what about 3 bedrooms"). new: a self-contained request that states its own location, property type or sale/rent ("3 bedroom apartment for sale under 12 million", "3ayez villa fe Zayed"): nothing from the earlier search may carry over. A message that restates sale/rent AND names a property type without mentioning the earlier place is new, even after a search that had no type ("properties for sale in Zayed" then "3 bedroom apartment for sale under 12 million": new, no city). When unsure and the message does not stand on its own, choose refine.',
     'semanticQuery: the FULL current qualitative preferences (view, quiet, garden, near schools...), in the visitor\'s own words, never a filter value (city, type, price, bedrooms, area). refine: start from the previous preferences below, keep them unless the visitor replaces or drops them ("cheaper" or "in Zayed instead" keeps them), and add new ones. new: use only the preferences this message states. Empty string if there are none.',
     'filters: return EVERY key; use null for anything the visitor did not constrain.',
     input.forceNewSearch
@@ -200,7 +200,7 @@ const GROUNDING_RULES = [
 ];
 
 function languageRule(language: Language): string {
-  return `Reply in the visitor's language (${LANGUAGE_NAME[language]}). Keep slugs, numbers and currency codes as they are.`;
+  return `Reply in the visitor's language (${LANGUAGE_NAME[language]}), the whole reply and not only its first sentence. Keep slugs, numbers and currency codes as they are; a listing title may be quoted exactly as written even when it is in another language.`;
 }
 
 export interface ChatPrompt {

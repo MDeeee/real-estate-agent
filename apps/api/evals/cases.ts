@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { INTENTS } from '../src/llm/agent-model.js';
+import { INTENTS, LANGUAGES } from '../src/llm/agent-model.js';
 import { propertyFilterShape } from '../src/properties/property-filters.schema.js';
 import type { Expectation } from './scoring.js';
 
@@ -17,6 +17,8 @@ const expectationSchema = z.strictObject({
     .transform((value) => (typeof value === 'string' ? [value] : value))
     .optional(),
   expectRefusal: z.boolean().optional(),
+  expectNoHits: z.boolean().optional(),
+  replyLanguage: z.enum(LANGUAGES).optional(),
 });
 
 const caseSchema = z.strictObject({

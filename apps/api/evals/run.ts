@@ -1,6 +1,7 @@
+import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { ConsoleLogger } from '@nestjs/common';
+import { ConsoleLogger, Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { HumanMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
@@ -19,7 +20,12 @@ import { LangChainAgentModel } from '../src/llm/langchain-agent-model.js';
 import { parseArgs } from './args.js';
 import { type Baseline, readBaseline, writeBaseline } from './baseline.js';
 import { type EvalCase, loadCases } from './cases.js';
-import { describeGate, evaluateGate, gateRegressions } from './gate.js';
+import {
+  decideBaselineUpdate,
+  describeGate,
+  evaluateGate,
+  gateRegressions,
+} from './gate.js';
 import { inspectLlm } from './llm.js';
 import { type TurnOutcome, observeLastTurn } from './observe.js';
 import { PacedAgentModel } from './paced-model.js';
@@ -38,6 +44,26 @@ const CASES_PATH = resolve(import.meta.dirname, 'cases.json');
 const BASELINE_PATH = resolve(import.meta.dirname, 'baseline.json');
 const RESULTS_PATH = resolve(import.meta.dirname, 'results/latest.json');
 const TURN_TIMEOUT_MS = 180_000;
+
+/**
+ * Under `tsx`, an ESM `import` of a CommonJS package can yield a second copy
+ * of it, so the `Reflector` class that `@nestjs/throttler` (CommonJS) asks for
+ * is not the one the container registered, and the app cannot be built. This
+ * global module registers the CommonJS copy too. Plain `node` (the built app)
+ * and Vitest load a single copy and do not need it.
+ */
+const { Reflector: CommonJsReflector } = createRequire(import.meta.url)(
+  '@nestjs/core',
+) as typeof import('@nestjs/core');
+
+@Global()
+@Module({
+  providers: [
+    { provide: CommonJsReflector, useValue: new CommonJsReflector() },
+  ],
+  exports: [CommonJsReflector],
+})
+class ReflectorCompatModule {}
 
 function loadDotEnv(): void {
   for (const file of ['.env', '../../.env']) {
@@ -204,7 +230,9 @@ async function main(): Promise<number> {
   // The real application, with exactly two substitutions: conversation memory
   // lives in RAM (the dev database's langgraph schema stays untouched) and
   // bookings are refused (a case that completes one fails loudly).
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await Test.createTestingModule({
+    imports: [ReflectorCompatModule, AppModule],
+  })
     .setLogger(new ConsoleLogger({ logLevels: ['error', 'warn'] }))
     .overrideProvider(CheckpointerService)
     .useValue({ saver: new MemorySaver() })
@@ -291,8 +319,17 @@ async function main(): Promise<number> {
     }
 
     if (args.updateBaseline) {
-      if (crashed.length > 0) {
-        console.error('Refusing to record a baseline from a run with crashes.');
+      const decision = decideBaselineUpdate({
+        failedCases: results
+          .filter((result) => describeFailures(result).length > 0)
+          .map(({ id }) => id),
+        gate,
+      });
+      if (!decision.write) {
+        console.error(
+          `
+Baseline NOT updated: ${decision.reasons.join('; ')}. Fix them and run again.`,
+        );
         return 1;
       }
       const next: Baseline = {

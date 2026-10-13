@@ -16,6 +16,7 @@ const observed: Observation = {
   citations: ['a-one', 'ghost-villa'],
   hasAnswer: true,
   refused: false,
+  reply: 'Here are two options.',
   conversationLatencyMs: 2500,
   conversationInputTokens: 100,
   conversationOutputTokens: 20,

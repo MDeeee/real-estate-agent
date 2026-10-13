@@ -9,6 +9,13 @@ export const ARABIC_SHARE_THRESHOLD = 0.3;
  */
 export const SHORT_MESSAGE_LETTERS = 15;
 
+/**
+ * Arabizi signals ("3ayez", "sha2a", "momken") from which a message counts as
+ * Arabizi when the conversation is not yet Arabic. One alone could be a name or
+ * a stray token, so a first message needs two.
+ */
+export const ARABIZI_MIN_SIGNALS = 2;
+
 const LETTER = /\p{L}/gu;
 const ARABIC_LETTER = /\p{Script=Arabic}/gu;
 
@@ -45,14 +52,14 @@ const ARABIZI_WORDS = new Set([
   'yaany',
 ]);
 
-function looksLikeArabizi(text: string): boolean {
+function arabiziSignals(text: string): number {
   return text
     .split(/[^\p{L}\p{N}]+/u)
-    .some(
+    .filter(
       (word) =>
         ARABIZI_WORDS.has(word.toLowerCase()) ||
         (ARABIZI_DIGIT_WORD.test(word) && !COUNT_WITH_UNIT.test(word)),
-    );
+    ).length;
 }
 
 /**
@@ -65,6 +72,8 @@ function looksLikeArabizi(text: string): boolean {
  * - otherwise Arabic still, in a conversation that is already Arabic, when the
  *   message is too short to tell (fewer than 15 letters: "ok", a name) or is
  *   written in Arabizi ("3ayez sha2a fe New Cairo");
+ * - otherwise Arabic when the message clearly reads as Arabizi (at least two
+ *   Arabizi words), even as the first message of a conversation;
  * - otherwise English. A message without any letter keeps `current`.
  */
 export function detectLanguage(
@@ -75,10 +84,9 @@ export function detectLanguage(
   if (letters === 0) return current;
   const arabic = text.match(ARABIC_LETTER)?.length ?? 0;
   if (arabic / letters >= ARABIC_SHARE_THRESHOLD) return 'ar';
-  if (
-    current === 'ar' &&
-    (letters < SHORT_MESSAGE_LETTERS || looksLikeArabizi(text))
-  ) {
+  const signals = arabiziSignals(text);
+  if (signals >= ARABIZI_MIN_SIGNALS) return 'ar';
+  if (current === 'ar' && (letters < SHORT_MESSAGE_LETTERS || signals > 0)) {
     return 'ar';
   }
   return 'en';

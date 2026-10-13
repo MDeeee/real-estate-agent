@@ -1,4 +1,5 @@
-import type { Intent } from '../src/llm/agent-model.js';
+import { detectLanguage } from '../src/agent/language.js';
+import type { Intent, Language } from '../src/llm/agent-model.js';
 import type { PropertyFilters } from '../src/properties/property-filters.schema.js';
 
 /** What a case expects of the LAST turn of its conversation. */
@@ -17,6 +18,14 @@ export interface Expectation {
   focusSlug?: readonly string[] | undefined;
   /** The reply must be the standard refusal (and only then). Default false. */
   expectRefusal?: boolean | undefined;
+  /**
+   * Search turns: the search must return no listing at all (the data has no
+   * match, and the agent must not pad the result). Scored as part of
+   * `exclusion`.
+   */
+  expectNoHits?: boolean | undefined;
+  /** The language of the final reply (script-based, as production detects it). */
+  replyLanguage?: Language | undefined;
 }
 
 /**
@@ -30,7 +39,7 @@ export interface Observation {
   filters: PropertyFilters | null;
   /** Search turns: listings returned this turn, best first. */
   retrievedSlugs: readonly string[] | null;
-  /** Details turns: the listing the reference resolved to. */
+  /** Details turns: the listing the reference resolved to; book turns: the listing the booking draft points at. */
   focusSlug: string | null;
   /** Every slug the answer may cite without being ungrounded (production's set). */
   groundingSlugs: readonly string[];
@@ -39,6 +48,8 @@ export interface Observation {
   /** Whether the model streamed a free-form answer this turn. */
   hasAnswer: boolean;
   refused: boolean;
+  /** The text of the final assistant reply. */
+  reply: string;
   /** Wall time of ALL turns of the conversation, rate-limit pauses excluded. */
   conversationLatencyMs: number;
   /** Input tokens summed over ALL turns of the conversation. */
@@ -121,6 +132,7 @@ export function scoreCase(
   const wantAny = expected.anyOfSlugs ?? [];
   const wantNone = expected.noneOfSlugs ?? [];
   const wantFocus = expected.focusSlug ?? [];
+  const wantNoHits = expected.expectNoHits ?? false;
   const wantedFilters = expected.filters ?? {};
   const wantedCount = definedEntries(wantedFilters).length;
 
@@ -145,17 +157,23 @@ export function scoreCase(
         ? null
         : top !== null && wantAny.some((slug) => top.includes(slug)),
     exclusion:
-      wantNone.length === 0
+      wantNone.length === 0 && !wantNoHits
         ? null
-        : top !== null && !wantNone.some((slug) => top.includes(slug)),
+        : top !== null &&
+          !wantNone.some((slug) => top.includes(slug)) &&
+          (!wantNoHits || top.length === 0),
     reference:
       wantFocus.length === 0
         ? null
         : observed?.focusSlug != null && wantFocus.includes(observed.focusSlug),
     grounded,
+    // The reply's shape: a refusal exactly when expected, and in the expected
+    // language when the case states one.
     refusal:
       observed !== null &&
-      observed.refused === (expected.expectRefusal ?? false),
+      observed.refused === (expected.expectRefusal ?? false) &&
+      (expected.replyLanguage === undefined ||
+        detectLanguage(observed.reply) === expected.replyLanguage),
   };
 }
 

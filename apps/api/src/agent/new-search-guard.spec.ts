@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dropCarriedOver } from './new-search-guard.js';
+import { dropCarriedOver, restatesFreshRequest } from './new-search-guard.js';
 
 const previousFilters = {
   city: 'Sheikh Zayed',
@@ -110,5 +110,63 @@ describe('dropCarriedOver', () => {
       dropCarriedOver({ ...base, latestMessage: 'a quiet place with a garden' })
         .semanticQuery,
     ).toBe('quiet street with a garden');
+  });
+});
+
+describe('restatesFreshRequest', () => {
+  const previous = { city: 'Sheikh Zayed', listing: 'SALE' } as const;
+  const apartmentSale = {
+    ...previous,
+    type: 'apartment',
+    listing: 'SALE',
+    bedroomsMin: 3,
+  } as const;
+
+  function check(
+    latestMessage: string,
+    filters: Record<string, unknown> = apartmentSale,
+    previousFilters: Record<string, unknown> = previous,
+  ) {
+    return restatesFreshRequest({
+      previousFilters: previousFilters as never,
+      filters: filters as never,
+      latestMessage,
+    });
+  }
+
+  it('is true for a self-contained request that restates the deal and a type', () => {
+    expect(check('3 bedroom apartment for sale under 12 million EGP.')).toBe(
+      true,
+    );
+    expect(
+      check('شقة 3 غرف للبيع', apartmentSale, { city: 'Sheikh Zayed' }),
+    ).toBe(true);
+    expect(
+      check('apartment for rent', { type: 'apartment', listing: 'RENT' }),
+    ).toBe(true);
+  });
+
+  it('is false for a narrowing follow-up', () => {
+    expect(check('only apartments')).toBe(false);
+    expect(check('apartments with 3 bedrooms please')).toBe(false);
+    expect(check('cheaper', { ...previous, priceMax: 5_000_000 })).toBe(false);
+    expect(
+      check('in New Cairo only', { listing: 'SALE', city: 'New Cairo' }),
+    ).toBe(false);
+  });
+
+  it('is false when the message names the earlier place or the earlier search had a type', () => {
+    expect(check('apartment for sale in Zayed')).toBe(false);
+    expect(
+      check('3 bedroom apartment for sale', apartmentSale, {
+        ...previous,
+        type: 'apartment',
+      }),
+    ).toBe(false);
+  });
+
+  it('is false when the extraction lacks a type or a listing', () => {
+    expect(check('apartment for sale', { listing: 'SALE' })).toBe(false);
+    expect(check('apartment for sale', { type: 'apartment' })).toBe(false);
   });
 });

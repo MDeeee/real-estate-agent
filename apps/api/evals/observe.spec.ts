@@ -17,6 +17,7 @@ function outcome(overrides: Partial<TurnOutcome> = {}): TurnOutcome {
       filters: { city: 'Sheikh Zayed', listing: 'SALE' },
       candidates: [candidate('a-one'), candidate('b-two')],
       messages: [new HumanMessage('hi'), new AIMessage('answer')],
+      bookingDraft: {},
     },
     rawAnswer: '',
     shownSlugs: [],
@@ -84,6 +85,22 @@ describe('observeLastTurn', () => {
     expect(observed.retrievedSlugs).toBeNull();
     expect(observed.focusSlug).toBeNull();
     expect(observed.groundingSlugs).toEqual([]);
+  });
+
+  it('reports the listing a booking draft points at for a book turn', () => {
+    const observed = observeLastTurn(
+      outcome({
+        state: {
+          ...outcome().state,
+          intent: 'book',
+          bookingDraft: { propertySlug: 'a-one' },
+        },
+      }),
+      totals,
+    );
+    expect(observed.focusSlug).toBe('a-one');
+    expect(observed.groundingSlugs).toEqual([]);
+    expect(observed.reply).toBe('answer');
   });
 
   it('detects the standard refusal and carries the conversation totals', () => {

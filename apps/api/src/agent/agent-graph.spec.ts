@@ -960,6 +960,45 @@ describe('agent graph', () => {
       expect(state.filters).toEqual({ city: 'New Cairo', type: 'villa' });
     });
 
+    it('a complete request that restates the deal and names a type is new after a typeless search', async () => {
+      const h = createGraphHarness();
+      routerAlwaysSaysRefine(h);
+      const thread = randomUUID();
+      await h.turn(thread, 'Show me properties for sale in Sheikh Zayed.');
+      const before = h.model.filterCalls.length;
+
+      const { state } = await h.turn(
+        thread,
+        '3 bedroom apartment for sale under 12 million EGP.',
+      );
+
+      // No third LLM call: the mode is corrected in code, the guard drops the city.
+      expect(h.model.filterCalls).toHaveLength(before + 1);
+      expect(state.searchMode).toBe('new');
+      expect(state.filters).toEqual({
+        type: 'apartment',
+        listing: 'SALE',
+        bedroomsMin: 3,
+        priceMax: 12_000_000,
+      });
+    });
+
+    it('"only apartments" after a typeless search stays a refinement', async () => {
+      const h = createGraphHarness();
+      routerAlwaysSaysRefine(h);
+      const thread = randomUUID();
+      await h.turn(thread, 'Show me properties for sale in Sheikh Zayed.');
+
+      const { state } = await h.turn(thread, 'only apartments');
+
+      expect(state.searchMode).toBe('refine');
+      expect(state.filters).toMatchObject({
+        city: 'Sheikh Zayed',
+        listing: 'SALE',
+        type: 'apartment',
+      });
+    });
+
     it('in Zayed instead keeps priceMax and bedroomsMin', async () => {
       const h = createGraphHarness();
       const thread = randomUUID();

@@ -189,6 +189,35 @@ function hasEvidence(
   return false;
 }
 
+/**
+ * A refinement the model mislabelled: the previous search named no property
+ * type, and the latest message on its own restates the deal (sale or rent) AND
+ * names a property type, without mentioning any place of the previous search.
+ * "3 bedroom apartment for sale under 12 million" after "properties for sale
+ * in Sheikh Zayed" is a complete new request; "only apartments" or "in New
+ * Cairo only" are narrowings and stay refinements.
+ */
+export function restatesFreshRequest(input: {
+  previousFilters: PropertyFilters;
+  filters: PropertyFilters;
+  latestMessage: string;
+}): boolean {
+  const { previousFilters, filters } = input;
+  if (previousFilters.type !== undefined) return false;
+  if (filters.type === undefined || filters.listing === undefined) return false;
+  const message = normalise(input.latestMessage);
+  if (
+    TYPE_WORDS[filters.type]?.test(message) !== true ||
+    LISTING_WORDS[filters.listing.toUpperCase()]?.test(message) !== true
+  ) {
+    return false;
+  }
+  return !LOCATION_KEYS.some((key) => {
+    const place = previousFilters[key];
+    return typeof place === 'string' && locationEvidence(place, message);
+  });
+}
+
 export interface CarryOverResult {
   filters: PropertyFilters;
   semanticQuery: string;

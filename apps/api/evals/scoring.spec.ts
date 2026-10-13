@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { refusalReply } from '../src/agent/replies.js';
 import {
   type CaseOutcome,
   type Expectation,
@@ -19,6 +20,7 @@ function observation(overrides: Partial<Observation> = {}): Observation {
     citations: [],
     hasAnswer: false,
     refused: false,
+    reply: 'Here are two options.',
     conversationLatencyMs: 1000,
     conversationInputTokens: 10,
     conversationOutputTokens: 5,
@@ -152,6 +154,56 @@ describe('scoreCase', () => {
     expect(
       scoreCase({ intent: 'search' }, observation({ refused: true })).refusal,
     ).toBe(false);
+  });
+
+  it('requires an empty result when no hits are expected', () => {
+    const none: Expectation = { intent: 'search', expectNoHits: true };
+    expect(scoreCase(none, observation({ retrievedSlugs: [] })).exclusion).toBe(
+      true,
+    );
+    expect(
+      scoreCase(none, observation({ retrievedSlugs: ['a-one'] })).exclusion,
+    ).toBe(false);
+    expect(
+      scoreCase(
+        none,
+        observation({ intent: 'smalltalk', retrievedSlugs: null }),
+      ).exclusion,
+    ).toBe(false);
+    expect(
+      scoreCase(
+        { intent: 'search' },
+        observation({ retrievedSlugs: ['a-one'] }),
+      ).exclusion,
+    ).toBeNull();
+  });
+
+  it('checks the reply language together with the refusal', () => {
+    const arabicRefusal: Expectation = {
+      intent: 'off_topic',
+      expectRefusal: true,
+      replyLanguage: 'ar',
+    };
+    const base = { intent: 'off_topic', refused: true } as const;
+    expect(
+      scoreCase(
+        arabicRefusal,
+        observation({ ...base, reply: refusalReply('ar') }),
+      ).refusal,
+    ).toBe(true);
+    expect(
+      scoreCase(
+        arabicRefusal,
+        observation({ ...base, reply: refusalReply('en') }),
+      ).refusal,
+    ).toBe(false);
+    // No language stated: either language passes.
+    expect(
+      scoreCase(
+        { intent: 'off_topic', expectRefusal: true },
+        observation({ ...base, reply: refusalReply('en') }),
+      ).refusal,
+    ).toBe(true);
   });
 
   it('fails every tested aspect when the case crashed', () => {

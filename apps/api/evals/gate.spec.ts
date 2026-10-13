@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Baseline } from './baseline.js';
-import { type GateInput, describeGate, evaluateGate } from './gate.js';
+import {
+  type GateInput,
+  decideBaselineUpdate,
+  describeGate,
+  evaluateGate,
+} from './gate.js';
 import type { Metrics } from './scoring.js';
 
 const metrics: Metrics = {
@@ -116,5 +121,66 @@ describe('evaluateGate', () => {
       5,
     );
     expect(ci.failed).toBe(true);
+  });
+});
+
+describe('decideBaselineUpdate', () => {
+  const clean = evaluateGate(input());
+  const regressed = evaluateGate(
+    input({
+      current: {
+        provider: 'claude',
+        model: 'claude-haiku-5-5',
+        metrics: { ...metrics, hitAt5: 0.5 },
+      },
+    }),
+  );
+
+  it('writes when every case passes and the gate passes', () => {
+    expect(decideBaselineUpdate({ failedCases: [], gate: clean })).toEqual({
+      write: true,
+    });
+  });
+
+  it('refuses when a case failed, naming it', () => {
+    const decision = decideBaselineUpdate({
+      failedCases: ['case-a'],
+      gate: clean,
+    });
+    expect(decision).toMatchObject({ write: false });
+    expect(!decision.write && decision.reasons.join(' ')).toContain('case-a');
+  });
+
+  it('refuses when the gate reports a regression', () => {
+    const decision = decideBaselineUpdate({ failedCases: [], gate: regressed });
+    expect(decision).toMatchObject({ write: false });
+    expect(!decision.write && decision.reasons.join(' ')).toContain('hitAt5');
+  });
+
+  it('reports both reasons together', () => {
+    const decision = decideBaselineUpdate({
+      failedCases: ['case-a'],
+      gate: regressed,
+    });
+    expect(!decision.write && decision.reasons).toHaveLength(2);
+  });
+
+  it('allows a first baseline and a re-record for another model', () => {
+    expect(
+      decideBaselineUpdate({
+        failedCases: [],
+        gate: evaluateGate(input({ baseline: null })),
+      }),
+    ).toEqual({ write: true });
+    expect(
+      decideBaselineUpdate({
+        failedCases: [],
+        gate: evaluateGate(
+          input({
+            current: { provider: 'openai-compatible', model: 'x', metrics },
+          }),
+        ),
+      }),
+    ).toEqual({ write: true });
   });
 });
