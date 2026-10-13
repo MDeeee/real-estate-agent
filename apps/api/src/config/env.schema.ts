@@ -65,6 +65,12 @@ export const envSchema = z.object({
   LLM_STRUCTURED_METHOD: z
     .enum(['functionCalling', 'jsonSchema'])
     .default('functionCalling'),
+  // Fail fast on a slow or overloaded provider. LangChain retries a failed call
+  // silently with backoff (6 times by default); this caps the retries.
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(1),
+  // Per LLM call: the whole call for structured output, the wait for the first
+  // token for a streamed answer. Exceeding it ends the turn as "provider busy".
+  LLM_CALL_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   OLLAMA_BASE_URL: z.url().default('http://localhost:11434'),
   EMBEDDING_MODEL: z.string().min(1).default('bge-m3'),
@@ -81,6 +87,8 @@ export const llmEnvSchema = envSchema.pick({
   OPENAI_COMPAT_BASE_URL: true,
   OPENAI_COMPAT_API_KEY: true,
   OPENAI_COMPAT_MODEL: true,
+  LLM_MAX_RETRIES: true,
+  LLM_CALL_TIMEOUT_MS: true,
 });
 
 export type LlmEnv = z.infer<typeof llmEnvSchema>;

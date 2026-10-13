@@ -7,13 +7,14 @@ function setup(delayMs: number) {
   const sleeps: number[] = [];
   const inner = {
     isConfigured: () => true,
-    classify: () => {
+    understand: () => {
       clock += 100;
       return Promise.resolve({
         intent: 'search',
         searchMode: 'refine',
         semanticQuery: '',
         propertyRef: undefined,
+        filters: {},
       });
     },
     streamAnswer: async function* () {
@@ -34,40 +35,43 @@ function setup(delayMs: number) {
   return { paced, sleeps, advance: (ms: number) => (clock += ms) };
 }
 
-const classifyInput = {
+const understandInput = {
   messages: [],
   candidates: [],
   bookingInProgress: false,
+  previousFilters: {},
   previousSemanticQuery: '',
+  today: '2026-10-12',
+  facets: { cities: [], compounds: [] },
 };
 
 describe('PacedAgentModel', () => {
   it('does not delay the first call', async () => {
     const { paced, sleeps } = setup(4000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     expect(sleeps).toEqual([]);
   });
 
   it('waits out the rest of the delay measured from the end of the last call', async () => {
     const { paced, sleeps, advance } = setup(4000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     advance(1000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     expect(sleeps).toEqual([3000]);
     expect(paced.pausedMs).toBe(3000);
   });
 
   it('does not wait when enough time has passed already', async () => {
     const { paced, sleeps, advance } = setup(4000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     advance(5000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     expect(sleeps).toEqual([]);
   });
 
   it('paces streamed answers as well', async () => {
     const { paced, sleeps } = setup(4000);
-    await paced.classify(classifyInput);
+    await paced.understand(understandInput);
     const chunks: string[] = [];
     for await (const chunk of paced.streamAnswer({
       language: 'en',

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { propertyFilterShape } from '../properties/property-filters.schema.js';
 import {
   bookingExtractionSchema,
-  classificationSchema,
+  understandingSchema,
   llmFilterSchema,
 } from './llm-schemas.js';
 
@@ -96,15 +96,35 @@ describe('bookingExtractionSchema', () => {
   });
 });
 
-describe('classificationSchema', () => {
+describe('understandingSchema', () => {
+  const json = toJsonSchema(understandingSchema) as unknown as ObjectSchema;
+
   it('no longer asks the model for the reply language', () => {
-    const json = toJsonSchema(classificationSchema) as unknown as ObjectSchema;
     expect(Object.keys(json.properties)).not.toContain('language');
+  });
+
+  it('asks for the routing fields and the filters in one object, all required', () => {
     expect([...json.required].sort()).toEqual([
+      'filters',
       'intent',
       'propertyRef',
       'searchMode',
       'semanticQuery',
     ]);
+  });
+
+  it('parses a non-search answer with all-null filters', () => {
+    const nulls = Object.fromEntries(
+      Object.keys(propertyFilterShape).map((key) => [key, null]),
+    );
+    expect(
+      understandingSchema.parse({
+        intent: 'details',
+        searchMode: 'refine',
+        semanticQuery: '',
+        propertyRef: 'the second one',
+        filters: nulls,
+      }).propertyRef,
+    ).toBe('the second one');
   });
 });

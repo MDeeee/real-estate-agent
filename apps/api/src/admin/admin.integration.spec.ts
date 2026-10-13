@@ -149,6 +149,7 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
       ['POST', '/documents'],
       ['POST', '/documents/some-id/reindex'],
       ['DELETE', '/documents/some-id'],
+      ['POST', '/bookings/clxxxxxxxxxxxxxxxxxxxxxxx/cancel'],
     ])('rejects %s %s with a wrong token', async (method, path) => {
       const response = await request(path, { method }, 'wrong-token');
       expect(response.status).toBe(401);
@@ -952,20 +953,28 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
       expect(await prisma.chunk.count()).toBe(0);
     });
 
-    it('refuses to delete a document whose property has bookings', async () => {
+    async function listingWithBookings(statuses: ('CONFIRMED' | 'CANCELLED')[]) {
       const result = await uploadOne({
         name: 'flat.md',
         content: listingMarkdown(),
       });
       const property = await prisma.property.findFirstOrThrow();
-      await prisma.booking.create({
-        data: {
-          propertyId: property.id,
-          name: 'Test Visitor',
-          phone: '+20 100 000 0000',
-          preferredDate: new Date('2026-12-01T10:00:00Z'),
-        },
-      });
+      for (const [index, status] of statuses.entries()) {
+        await prisma.booking.create({
+          data: {
+            propertyId: property.id,
+            name: `Visitor ${index}`,
+            phone: '+20 100 000 0000',
+            preferredDate: new Date(`2026-12-0${index + 1}T00:00:00Z`),
+            status,
+          },
+        });
+      }
+      return result;
+    }
+
+    it('refuses to delete a document whose property has an active booking', async () => {
+      const result = await listingWithBookings(['CONFIRMED', 'CANCELLED']);
 
       const response = await request(`/documents/${result.documentId}`, {
         method: 'DELETE',
@@ -973,9 +982,42 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
       const body = (await response.json()) as { message: string };
 
       expect(response.status).toBe(409);
-      expect(body.message).toContain('1 booking');
+      expect(body.message).toBe(
+        'Cannot delete flat.md: its property has 1 active booking(s). Cancel them in Bookings first.',
+      );
       expect(await prisma.document.count()).toBe(1);
       expect(await prisma.chunk.count()).toBeGreaterThan(0);
+      // Nothing was removed, not even the cancelled one.
+      expect(await prisma.booking.count()).toBe(2);
+    });
+
+    it('deletes a document whose property has only cancelled bookings, and those bookings', async () => {
+      const result = await listingWithBookings(['CANCELLED', 'CANCELLED']);
+
+      const response = await request(`/documents/${result.documentId}`, {
+        method: 'DELETE',
+      });
+
+      expect(response.status).toBe(204);
+      expect(await prisma.document.count()).toBe(0);
+      expect(await prisma.property.count()).toBe(0);
+      expect(await prisma.booking.count()).toBe(0);
+    });
+
+    it('deletes after the last active booking is cancelled', async () => {
+      const result = await listingWithBookings(['CONFIRMED']);
+      const booking = await prisma.booking.findFirstOrThrow();
+
+      const cancel = await request(`/bookings/${booking.id}/cancel`, {
+        method: 'POST',
+      });
+      expect(cancel.status).toBe(200);
+      const response = await request(`/documents/${result.documentId}`, {
+        method: 'DELETE',
+      });
+
+      expect(response.status).toBe(204);
+      expect(await prisma.booking.count()).toBe(0);
     });
   });
 
@@ -1023,6 +1065,103 @@ describe.skipIf(!databaseUrl)('admin API (integration)', () => {
       expect(body.items[0]?.property).toEqual({
         slug: 'zamalek-test-flat',
         title: 'Test flat in Zamalek',
+      });
+    });
+  });
+
+  describe('cancelling a booking', () => {
+    async function oneBooking(status: 'CONFIRMED' | 'CANCELLED' = 'CONFIRMED') {
+      await uploadOne({ name: 'flat.md', content: listingMarkdown() });
+      const property = await prisma.property.findFirstOrThrow();
+      return prisma.booking.create({
+        data: {
+          propertyId: property.id,
+          name: 'Test Visitor',
+          phone: '+20 100 000 0000',
+          preferredDate: new Date('2026-12-01T00:00:00Z'),
+          preferredTime: '17:00',
+          status,
+        },
+      });
+    }
+
+    const cancel = (id: string, token = TOKEN) =>
+      request(`/bookings/${id}/cancel`, { method: 'POST' }, token);
+
+    it('cancels a confirmed booking and returns it', async () => {
+      const booking = await oneBooking();
+
+      const response = await cancel(booking.id);
+      const body = (await response.json()) as Record<string, unknown>;
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        id: booking.id,
+        reference: booking.id.slice(-8).toUpperCase(),
+        status: 'CANCELLED',
+        name: 'Test Visitor',
+        preferredDate: '2026-12-01',
+        preferredTime: '17:00',
+        property: { slug: 'zamalek-test-flat', title: 'Test flat in Zamalek' },
+      });
+      const stored = await prisma.booking.findUniqueOrThrow({
+        where: { id: booking.id },
+      });
+      expect(stored.status).toBe('CANCELLED');
+    });
+
+    it('is idempotent: cancelling a cancelled booking returns it unchanged', async () => {
+      const booking = await oneBooking();
+      const first = await (await cancel(booking.id)).json();
+
+      const again = await cancel(booking.id);
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual(first);
+    });
+
+    it('answers 404 for an unknown id', async () => {
+      const response = await cancel('clxxxxxxxxxxxxxxxxxxxxxxx');
+      expect(response.status).toBe(404);
+    });
+
+    it('answers 400 for an id that is not a booking id', async () => {
+      const response = await cancel('not%20an%20id');
+      expect(response.status).toBe(400);
+    });
+
+    it('answers 401 without a valid admin session', async () => {
+      const booking = await oneBooking();
+      const response = await cancel(booking.id, 'wrong-token');
+      expect(response.status).toBe(401);
+      const stored = await prisma.booking.findUniqueOrThrow({
+        where: { id: booking.id },
+      });
+      expect(stored.status).toBe('CONFIRMED');
+    });
+
+    it('answers 403 without the X-Requested-With header, and changes nothing', async () => {
+      const booking = await oneBooking();
+      const response = await fetch(`${baseUrl}/bookings/${booking.id}/cancel`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      });
+      expect(response.status).toBe(403);
+      const stored = await prisma.booking.findUniqueOrThrow({
+        where: { id: booking.id },
+      });
+      expect(stored.status).toBe('CONFIRMED');
+    });
+
+    it('lists the booking with its reference and the new status', async () => {
+      const booking = await oneBooking();
+      await cancel(booking.id);
+      const body = (await (await request('/bookings')).json()) as {
+        items: { reference: string; status: string }[];
+      };
+      expect(body.items[0]).toMatchObject({
+        reference: booking.id.slice(-8).toUpperCase(),
+        status: 'CANCELLED',
       });
     });
   });

@@ -1,8 +1,13 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { request } from "@/shared/api/http";
-import { pageSchema } from "@/shared/api/page";
+import { pageSchema, type Page } from "@/shared/api/page";
 import { ADMIN_PAGE_SIZE } from "../constants";
-import { bookingItemSchema } from "./schemas";
+import { bookingItemSchema, type BookingItem } from "./schemas";
 
 export const bookingKeys = {
   all: ["admin", "bookings"] as const,
@@ -19,5 +24,35 @@ export function useBookings(page: number) {
         { signal },
       ),
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Cancels a booking. The returned booking replaces the cached row at once and
+ * the lists are refetched, so the row shows CANCELLED without a reload.
+ */
+export function useCancelBooking() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      request(
+        `/admin/bookings/${encodeURIComponent(id)}/cancel`,
+        bookingItemSchema,
+        { method: "POST" },
+      ),
+    onSuccess: (updated) => {
+      queryClient.setQueriesData<Page<BookingItem>>(
+        { queryKey: bookingKeys.all },
+        (page) =>
+          page && {
+            ...page,
+            items: page.items.map((item) =>
+              item.id === updated.id ? updated : item,
+            ),
+          },
+      );
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: bookingKeys.all }),
   });
 }

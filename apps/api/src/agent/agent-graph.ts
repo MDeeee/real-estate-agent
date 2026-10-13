@@ -9,13 +9,12 @@ import { AgentState } from './agent-state.js';
 import { createAnswerNode } from './nodes/answer.js';
 import { createBookNode } from './nodes/book.js';
 import { createDetailsNode } from './nodes/details.js';
-import { createExtractFiltersNode } from './nodes/extract-filters.js';
 import { createRetrieveNode } from './nodes/retrieve.js';
-import { NODE_FOR_INTENT, createRouteNode } from './nodes/route.js';
 import { refuseNode, smalltalkNode } from './nodes/static-reply.js';
 import { trimNode } from './nodes/trim.js';
+import { NODE_FOR_INTENT, createUnderstandNode } from './nodes/understand.js';
 
-/** Upper bound on graph steps per turn; the longest path (search) takes six. */
+/** Upper bound on graph steps per turn; the longest path (search) takes four. */
 export const RECURSION_LIMIT = 12;
 
 /** Final node of every path; also the node a rolled-back turn is recorded as. */
@@ -26,8 +25,7 @@ export function buildAgentGraph(
   checkpointer: BaseCheckpointSaver,
 ) {
   return new StateGraph(AgentState)
-    .addNode('route', createRouteNode(deps))
-    .addNode('extract_filters', createExtractFiltersNode(deps))
+    .addNode('understand', createUnderstandNode(deps))
     .addNode('retrieve', createRetrieveNode(deps))
     .addNode('answer', createAnswerNode(deps))
     .addNode('details', createDetailsNode(deps))
@@ -35,13 +33,12 @@ export function buildAgentGraph(
     .addNode('smalltalk', smalltalkNode)
     .addNode('refuse', refuseNode)
     .addNode(TRIM_NODE, trimNode)
-    .addEdge(START, 'route')
+    .addEdge(START, 'understand')
     .addConditionalEdges(
-      'route',
+      'understand',
       (state) => NODE_FOR_INTENT[state.intent ?? 'off_topic'],
       Object.values(NODE_FOR_INTENT),
     )
-    .addEdge('extract_filters', 'retrieve')
     .addEdge('retrieve', 'answer')
     .addEdge('answer', TRIM_NODE)
     .addEdge('details', TRIM_NODE)

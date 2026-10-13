@@ -33,7 +33,12 @@ export function applyEventToMessage(
         streaming: false,
       };
     case "error":
-      return { ...message, error: event.message, streaming: false };
+      return {
+        ...message,
+        error: event.message,
+        errorCode: event.code,
+        streaming: false,
+      };
     case "status":
     case "done":
       return message;

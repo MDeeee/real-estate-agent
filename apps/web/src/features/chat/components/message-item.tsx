@@ -122,7 +122,9 @@ export function MessageItem({
           role="alert"
           className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-danger-soft px-3 py-2 text-sm text-danger"
         >
-          <span>{message.error}</span>
+          <span dir="auto" data-error-code={message.errorCode}>
+            {message.error}
+          </span>
           {canRetry ? (
             <Button variant="secondary" onClick={onRetry} className="text-xs">
               Try again

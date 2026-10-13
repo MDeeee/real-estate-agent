@@ -18,6 +18,24 @@ describe('validateEnv', () => {
     expect(env.THROTTLE_TTL_SECONDS).toBe(60);
     expect(env.THROTTLE_LIMIT).toBe(120);
     expect(env.CHAT_TURN_TIMEOUT_MS).toBe(90_000);
+    expect(env.LLM_MAX_RETRIES).toBe(1);
+    expect(env.LLM_CALL_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it('reads LLM_MAX_RETRIES and LLM_CALL_TIMEOUT_MS and rejects bad values', () => {
+    const env = validateEnv({
+      ...base,
+      LLM_MAX_RETRIES: '0',
+      LLM_CALL_TIMEOUT_MS: '15000',
+    });
+    expect(env.LLM_MAX_RETRIES).toBe(0);
+    expect(env.LLM_CALL_TIMEOUT_MS).toBe(15_000);
+    expect(() => validateEnv({ ...base, LLM_MAX_RETRIES: '-1' })).toThrow(
+      /LLM_MAX_RETRIES/,
+    );
+    expect(() => validateEnv({ ...base, LLM_CALL_TIMEOUT_MS: '0' })).toThrow(
+      /LLM_CALL_TIMEOUT_MS/,
+    );
   });
 
   it('reads CHAT_TURN_TIMEOUT_MS and rejects a non-positive value', () => {

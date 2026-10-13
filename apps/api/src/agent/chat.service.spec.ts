@@ -3,10 +3,14 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.schema.js';
+import {
+  ProviderBusyError,
+  ProviderUnavailableError,
+} from '../llm/provider-errors.js';
 import { createGraphHarness } from '../testing/chat-fixtures.js';
 import type { AgentGraphService } from './agent-graph.service.js';
 import type { ChatEvent } from './chat-events.js';
-import { ChatService } from './chat.service.js';
+import { ChatService, describeError } from './chat.service.js';
 import { threadLogId } from './pii.js';
 
 type Harness = ReturnType<typeof createGraphHarness>;
@@ -117,8 +121,162 @@ describe('ChatService turn rollback', () => {
     expect(events.at(-2)).toEqual({
       type: 'error',
       message: 'The assistant took too long to answer. Please try again.',
+      code: 'timeout',
     });
     expect(await slow.history(thread)).toEqual([]);
+  });
+
+  describe('a busy or too slow AI provider', () => {
+    const BUSY_EN =
+      'The AI provider is busy right now. Please try again in a minute.';
+
+    function logged() {
+      const lines: Record<string, unknown>[] = [];
+      vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => {
+        lines.push(JSON.parse(String(m)) as Record<string, unknown>);
+      });
+      return lines;
+    }
+
+    it('ends the turn with a distinct friendly event and rolls it back', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      await drain(service, thread, 'hello');
+      const before = await service.history(thread);
+      const lines = logged();
+      h.model.classify = () => Promise.reject(new ProviderBusyError('busy'));
+
+      const events = await drain(service, thread, 'apartments in New Cairo');
+
+      expect(events.slice(-2)).toEqual([
+        { type: 'error', message: BUSY_EN, code: 'provider_busy' },
+        { type: 'done' },
+      ]);
+      expect(await service.history(thread)).toEqual(before);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({
+        event: 'chat_turn_failed',
+        reason: 'provider_busy',
+      });
+      // One call for "hello" and one for the failed turn: a busy provider is not retried.
+      expect(h.model.understandCalls).toHaveLength(2);
+    });
+
+    it('says the assistant is unavailable, not busy, for a quota or key failure', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      await drain(service, thread, 'hello');
+      const before = await service.history(thread);
+      const lines = logged();
+      h.model.classify = () => Promise.reject(new ProviderUnavailableError());
+
+      const events = await drain(service, thread, 'apartments in New Cairo');
+
+      expect(events.slice(-2)).toEqual([
+        {
+          type: 'error',
+          message: 'The AI assistant is not available right now.',
+          code: 'provider_unavailable',
+        },
+        { type: 'done' },
+      ]);
+      expect(await service.history(thread)).toEqual(before);
+      expect(lines[0]).toMatchObject({
+        event: 'chat_turn_failed',
+        reason: 'provider_quota_or_auth',
+      });
+      // Not retried: one call for "hello", one for the failed turn.
+      expect(h.model.understandCalls).toHaveLength(2);
+    });
+
+    it('also says it in Arabic', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      await drain(service, thread, 'شقة للإيجار في الشيخ زايد');
+      logged();
+      h.model.classify = () => Promise.reject(new ProviderUnavailableError());
+      const events = await drain(service, thread, 'عايز فيلا في التجمع الخامس');
+      expect(events.at(-2)).toEqual({
+        type: 'error',
+        message: 'المساعد الذكي غير متاح حالياً.',
+        code: 'provider_unavailable',
+      });
+    });
+
+    it('treats a single call that timed out the same way', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      logged();
+      h.model.classify = () => Promise.reject(new ProviderBusyError('timeout'));
+      const events = await drain(service, randomUUID(), 'apartments');
+      expect(events.at(-2)).toEqual({
+        type: 'error',
+        message: BUSY_EN,
+        code: 'provider_busy',
+      });
+    });
+
+    it('also covers a failure while the answer streams', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      logged();
+      h.model.streamAnswer = ((): AsyncGenerator<string> => {
+        throw new ProviderBusyError('busy');
+      }) as never;
+      const events = await drain(service, thread, 'apartments in New Cairo');
+      expect(events.at(-2)).toMatchObject({ code: 'provider_busy' });
+      expect(await service.history(thread)).toEqual([]);
+    });
+
+    it('speaks Arabic in an Arabic conversation', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const thread = randomUUID();
+      await drain(service, thread, 'شقة للإيجار في الشيخ زايد');
+      logged();
+      h.model.classify = () => Promise.reject(new ProviderBusyError('busy'));
+
+      const events = await drain(service, thread, 'عايز فيلا في التجمع الخامس');
+
+      const error = events.at(-2);
+      expect(error).toMatchObject({ type: 'error', code: 'provider_busy' });
+      expect((error as { message: string }).message).toMatch(/[؀-ۿ]/);
+    });
+
+    it('keeps the generic and the turn timeout errors apart from it', async () => {
+      const h = createGraphHarness();
+      const service = serviceFor(h);
+      const lines = logged();
+      h.model.classify = () => Promise.reject(new Error('provider down'));
+      const generic = await drain(service, randomUUID(), 'apartments');
+      expect(generic.at(-2)).toEqual({
+        type: 'error',
+        message: 'The assistant could not answer. Please try again.',
+        code: 'error',
+      });
+
+      const slow = serviceFor(h, 30);
+      h.model.classify = ((
+        _input: unknown,
+        options?: { signal?: AbortSignal },
+      ) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () =>
+            reject(new Error('aborted')),
+          );
+        })) as never;
+      const timedOut = await drain(slow, randomUUID(), 'apartments');
+      expect(timedOut.at(-2)).toMatchObject({ code: 'timeout' });
+
+      expect(lines.map((line) => line['reason'])).toEqual([
+        'error',
+        'timeout',
+      ]);
+    });
   });
 
   it('removes a conversation whose very first turn failed', async () => {
@@ -330,5 +488,22 @@ describe('ChatService history', () => {
     expect(booked?.booking?.phone).toBe('010****4567');
     expect(JSON.stringify(history)).not.toContain('01001234567');
     expect(history.some((m) => m.text.includes('010****4567'))).toBe(true);
+  });
+});
+
+describe('describeError', () => {
+  it('joins the message and the cause chain', () => {
+    const error = new Error('outer', { cause: new Error('inner') });
+    expect(describeError(error)).toBe('outer <- inner');
+  });
+
+  it('never throws on a circular cause or a BigInt', () => {
+    const circular: Record<string, unknown> = {};
+    circular['self'] = circular;
+    const error = new Error('wrapped', { cause: circular });
+    expect(() => describeError(error)).not.toThrow();
+    expect(describeError(error)).toContain('wrapped <- ');
+    expect(describeError(10n)).toBe('10');
+    expect(describeError(undefined)).toBe('');
   });
 });

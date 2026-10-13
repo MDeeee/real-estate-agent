@@ -26,6 +26,22 @@ export function refusalReply(language: Language): string {
   });
 }
 
+/** The AI provider is overloaded or too slow: the visitor can simply try again. */
+export function providerBusyReply(language: Language): string {
+  return pick(language, {
+    en: 'The AI provider is busy right now. Please try again in a minute.',
+    ar: 'مزود الذكاء الاصطناعي مشغول حالياً. من فضلك حاول مرة تانية بعد دقيقة.',
+  });
+}
+
+/** The provider's quota, billing or key is the problem: retrying will not help. */
+export function providerUnavailableReply(language: Language): string {
+  return pick(language, {
+    en: 'The AI assistant is not available right now.',
+    ar: 'المساعد الذكي غير متاح حالياً.',
+  });
+}
+
 export function emptyAnswerReply(language: Language): string {
   return pick(language, {
     en: 'Sorry, I could not put an answer together. Please try rephrasing your request.',

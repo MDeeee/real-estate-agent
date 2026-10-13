@@ -5,9 +5,10 @@ import {
   BookingCancelledError,
   PropertyUnavailableError,
 } from '../bookings/bookings.service.js';
-import { classifyMessages } from '../llm/prompts.js';
+import { ProviderBusyError } from '../llm/provider-errors.js';
+import { understandMessages } from '../llm/prompts.js';
 import { createGraphHarness, makeCard } from '../testing/chat-fixtures.js';
-import { changesSearchIdentity } from './nodes/extract-filters.js';
+import { changesSearchIdentity } from './nodes/understand.js';
 import { MAX_STORED_MESSAGES, trimNode } from './nodes/trim.js';
 
 describe('agent graph', () => {
@@ -753,14 +754,17 @@ describe('agent graph', () => {
     });
 
     it('tells the model about the previous preferences in the router prompt', async () => {
-      const [system] = classifyMessages({
+      const [system] = understandMessages({
         messages: [{ role: 'user', text: 'cheaper' }],
         candidates: [],
         bookingInProgress: false,
+        previousFilters: {},
         previousSemanticQuery: 'garden view',
+        today: '2026-10-12',
+        facets: { cities: [], compounds: [] },
       });
       expect(system?.content).toContain(
-        'Previous qualitative preferences: garden view',
+        'Previous qualitative preferences (not a filter): garden view',
       );
       expect(system?.content).toContain('FULL current qualitative preferences');
     });
@@ -783,8 +787,9 @@ describe('agent graph', () => {
       expect(state.searchMode).toBe('new');
       const call = h.model.filterCalls.at(-1);
       expect(call?.searchMode).toBe('new');
-      expect(call?.previousFilters).toEqual({});
-      expect(call?.previousSemanticQuery).toBe('');
+      // The (fake) model leaks the previous filters, like a real one can...
+      expect(call?.previousFilters).toMatchObject({ city: 'Sheikh Zayed' });
+      // ...and the carry-over guard removes what the visitor did not restate.
       expect(state.filters).toEqual({
         type: 'apartment',
         listing: 'SALE',
@@ -792,15 +797,87 @@ describe('agent graph', () => {
       });
     });
 
-    it('shows a new search only the latest request', async () => {
+    it('drops the values a new search leaked from the previous one', async () => {
       const h = createGraphHarness();
       const thread = randomUUID();
-      await h.turn(thread, '3 bedroom apartment in Sheikh Zayed');
-      await h.turn(thread, 'apartment for sale under 12 million');
+      await h.turn(
+        thread,
+        '3 bedroom apartment in Sheikh Zayed for rent under 7 million',
+      );
 
-      expect(h.model.filterCalls.at(-1)?.messages).toEqual([
-        { role: 'user', text: 'apartment for sale under 12 million' },
-      ]);
+      const { state, events } = await h.turn(thread, 'apartment for sale');
+
+      expect(state.searchMode).toBe('new');
+      // City, bedrooms and budget leaked and were not restated.
+      expect(state.filters).toEqual({ type: 'apartment', listing: 'SALE' });
+      expect(events.find((e) => e.type === 'filters')).toMatchObject({
+        filters: { type: 'apartment', listing: 'SALE' },
+      });
+      expect(h.warnings.join(' ')).toContain('city');
+    });
+
+    it('keeps a value the new search restates', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(
+        thread,
+        '3 bedroom apartment in Sheikh Zayed for rent under 7 million',
+      );
+
+      const { state } = await h.turn(
+        thread,
+        'apartment for sale in Sheikh Zayed under 7 million',
+      );
+
+      expect(state.searchMode).toBe('new');
+      // The city and the budget are said again; the bedrooms are not.
+      expect(state.filters).toEqual({
+        city: 'Sheikh Zayed',
+        type: 'apartment',
+        listing: 'SALE',
+        priceMax: 7_000_000,
+      });
+    });
+
+    it('drops leaked qualitative preferences of a new search', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment with a garden view in New Cairo');
+      const { state } = await h.turn(thread, 'apartment for sale in Maadi');
+      expect(state.searchMode).toBe('new');
+      expect(h.model.classifyCalls.at(-1)?.previousSemanticQuery).toBe(
+        'garden view',
+      );
+      expect(state.semanticQuery).toBe('');
+
+      const restated = await h.turn(
+        thread,
+        'apartment for rent with a garden view',
+      );
+      expect(restated.state.semanticQuery).toBe('garden view');
+    });
+
+    it('falls back to the first understanding as a new search when the forced attempt fails', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment in New Cairo to buy');
+      const classify = h.model.classify.bind(h.model);
+      h.model.classify = async (input) => ({
+        ...(await classify(input)),
+        searchMode: 'refine',
+      });
+      const understand = h.model.understand.bind(h.model);
+      h.model.understand = (input) =>
+        input.forceNewSearch
+          ? Promise.reject(new ProviderBusyError('busy'))
+          : understand(input);
+
+      const { state } = await h.turn(thread, 'apartment for rent');
+
+      expect(state.searchMode).toBe('new');
+      // The carried-over city is dropped; the restated type and listing stay.
+      expect(state.filters).toEqual({ type: 'apartment', listing: 'RENT' });
+      expect(h.warnings.join(' ')).toContain('forced new-search');
     });
 
     it('gives the previous filters and preferences to a refinement only', async () => {
@@ -928,11 +1005,14 @@ describe('agent graph', () => {
     });
 
     it('explains both modes to the router', () => {
-      const [system] = classifyMessages({
+      const [system] = understandMessages({
         messages: [{ role: 'user', text: 'villa in Zayed' }],
         candidates: [],
         bookingInProgress: false,
+        previousFilters: {},
         previousSemanticQuery: '',
+        today: '2026-10-12',
+        facets: { cities: [], compounds: [] },
       });
       expect(system?.content).toContain('searchMode');
       expect(system?.content).toContain('refine');
@@ -1014,6 +1094,193 @@ describe('agent graph', () => {
     expect(last?.additional_kwargs['properties']).toHaveLength(3);
     expect(last?.additional_kwargs['search']).toMatchObject({
       filters: { city: 'New Cairo', type: 'apartment' },
+    });
+  });
+
+  describe('LLM calls per turn', () => {
+    type H = ReturnType<typeof createGraphHarness>;
+    const llmCalls = (h: H) =>
+      h.model.understandCalls.length +
+      h.model.answerCalls.length +
+      h.model.detailsCalls.length +
+      h.model.bookingCalls.length;
+
+    async function calls(h: H, thread: string, message: string) {
+      const before = llmCalls(h);
+      await h.turn(thread, message);
+      return llmCalls(h) - before;
+    }
+
+    it('a search makes two: the combined understanding, then the answer', async () => {
+      const h = createGraphHarness();
+      expect(await calls(h, randomUUID(), 'apartments in New Cairo')).toBe(2);
+      expect(h.model.understandCalls).toHaveLength(1);
+      expect(h.model.answerCalls).toHaveLength(1);
+    });
+
+    it('a refinement makes two as well', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartments in New Cairo');
+      expect(await calls(h, thread, 'something cheaper')).toBe(2);
+    });
+
+    it('details and booking turns make two, smalltalk and refusals one', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartments in New Cairo');
+      expect(await calls(h, thread, 'tell me more about the second one')).toBe(
+        2,
+      );
+      expect(await calls(h, thread, 'book the first one')).toBe(2);
+      expect(await calls(h, thread, 'thanks')).toBe(1);
+      expect(await calls(h, thread, 'what is the weather today?')).toBe(1);
+    });
+
+    it('only the identity safety net adds a call to a search turn', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartment in New Cairo to buy');
+      const classify = h.model.classify.bind(h.model);
+      h.model.classify = async (input) => ({
+        ...(await classify(input)),
+        searchMode: 'refine',
+      });
+      expect(await calls(h, thread, 'apartment for rent')).toBe(3);
+    });
+
+    it('never retries a call that failed because the provider is busy', async () => {
+      const h = createGraphHarness();
+      h.model.classify = () => Promise.reject(new ProviderBusyError('busy'));
+      await expect(h.turn(randomUUID(), 'apartments')).rejects.toBeInstanceOf(
+        ProviderBusyError,
+      );
+      expect(h.model.understandCalls).toHaveLength(1);
+    });
+
+    it('retries once when the output is unusable, then fails the turn', async () => {
+      const h = createGraphHarness();
+      h.model.classify = () => Promise.reject(new Error('no valid output'));
+      await expect(h.turn(randomUUID(), 'apartments')).rejects.toThrow(
+        'no valid output',
+      );
+      expect(h.model.understandCalls).toHaveLength(2);
+    });
+  });
+
+  describe('ordinals read from the visitor message', () => {
+    type H = ReturnType<typeof createGraphHarness>;
+
+    /** The model understood the intent but left the listing reference empty. */
+    function modelLeavesRefEmpty(h: H, intent: 'details' | 'book') {
+      h.model.classify = () =>
+        Promise.resolve({
+          intent,
+          searchMode: 'refine',
+          semanticQuery: '',
+          propertyRef: undefined,
+        });
+    }
+
+    async function searched() {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'apartments in New Cairo');
+      return { h, thread };
+    }
+
+    it.each([
+      ['tell me more about the second one', 'beta-apartment'],
+      ['payment plan of the first one', 'alpha-apartment'],
+      ['details of the last one', 'gamma-apartment'],
+      ['details of number 3', 'gamma-apartment'],
+      ['تفاصيل التاني', 'beta-apartment'],
+      ['قولي أكتر عن الأولى', 'alpha-apartment'],
+      ['عايز اعرف عن التالتة', 'gamma-apartment'],
+      ['الأخيرة؟', 'gamma-apartment'],
+    ])(
+      'details: "%s" opens %s even when the model gave no reference',
+      async (message, slug) => {
+        const { h, thread } = await searched();
+        modelLeavesRefEmpty(h, 'details');
+        const { state } = await h.turn(thread, message);
+        expect(state.propertyRef).toBe(slug);
+        expect(h.model.detailsCalls.at(-1)?.card.slug).toBe(slug);
+      },
+    );
+
+    it('booking: "the second one" is resolved without the model', async () => {
+      const { h, thread } = await searched();
+      modelLeavesRefEmpty(h, 'book');
+      h.model.bookingQueue = [{}];
+      const { state } = await h.turn(thread, 'book the second one');
+      expect(state.bookingDraft.propertySlug).toBe('beta-apartment');
+    });
+
+    it('a reference of the model that resolves wins over the message words', async () => {
+      const { h, thread } = await searched();
+      h.model.classify = () =>
+        Promise.resolve({
+          intent: 'details',
+          searchMode: 'refine',
+          semanticQuery: '',
+          propertyRef: 'alpha-apartment',
+        });
+      const { state } = await h.turn(thread, 'tell me about the third one');
+      expect(state.propertyRef).toBe('alpha-apartment');
+    });
+
+    it.each([
+      'book it for the 2nd of November',
+      'my last name is Hassan',
+      'what is the first installment?',
+      'يوم اول الشهر',
+      'عايز ميعاد تاني',
+    ])('"%s" does not pick a listing', async (message) => {
+      const { h, thread } = await searched();
+      modelLeavesRefEmpty(h, 'details');
+      const { state } = await h.turn(thread, message);
+      expect(state.propertyRef).toBeNull();
+    });
+
+    it('a booking in progress never switches property because of ordinal words', async () => {
+      const { h, thread } = await searched();
+      modelLeavesRefEmpty(h, 'book');
+      h.model.bookingQueue = [{}];
+      await h.turn(thread, 'book the second one');
+      h.model.bookingQueue = [{}];
+      const { state } = await h.turn(thread, 'the third one is also nice');
+      expect(state.bookingDraft.propertySlug).toBe('beta-apartment');
+      expect(state.propertyRef).toBeNull();
+    });
+
+    it('the reference of the model is the fallback when the message has no ordinal', async () => {
+      const { h, thread } = await searched();
+      h.model.classify = () =>
+        Promise.resolve({
+          intent: 'details',
+          searchMode: 'refine',
+          semanticQuery: '',
+          propertyRef: 'beta-apartment',
+        });
+      const { state } = await h.turn(thread, 'tell me more about that one');
+      expect(state.propertyRef).toBe('beta-apartment');
+      expect(h.model.detailsCalls.at(-1)?.card.slug).toBe('beta-apartment');
+    });
+
+    it('still reads the list of the search after a details turn showed one card', async () => {
+      const { h, thread } = await searched();
+      await h.turn(thread, 'tell me more about the first one');
+      modelLeavesRefEmpty(h, 'details');
+      const { state } = await h.turn(thread, 'and the third one?');
+      expect(state.propertyRef).toBe('gamma-apartment');
+    });
+
+    it('an ordinal beyond the list shown resolves to nothing', async () => {
+      const { h, thread } = await searched();
+      modelLeavesRefEmpty(h, 'details');
+      const { text } = await h.turn(thread, 'details of the fifth one');
+      expect(text).toContain('Which listing');
     });
   });
 });

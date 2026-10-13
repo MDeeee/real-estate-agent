@@ -55,15 +55,30 @@ export interface ModelCallOptions {
   usage?: TokenUsage | undefined;
 }
 
-export interface ClassifyInput {
+export interface UnderstandInput {
   messages: ConversationTurn[];
   candidates: CandidateRef[];
   bookingInProgress: boolean;
+  /** The previous search's filters (empty when there is none yet). */
+  previousFilters: PropertyFilters;
   /** Qualitative preferences of the current search (empty when there are none). */
   previousSemanticQuery: string;
+  today: string;
+  facets: { cities: string[]; compounds: string[] };
+  /**
+   * The safety net decided the message starts another search: interpret it as
+   * a NEW search, carrying nothing over from the previous one.
+   */
+  forceNewSearch?: boolean | undefined;
+  /** Validation errors of the previous attempt, when this is the retry. */
+  validationErrors?: string[] | undefined;
 }
 
-export interface Classification {
+/**
+ * The result of the single structured call that routes a turn and, for a
+ * search, extracts its filters.
+ */
+export interface Understanding {
   intent: Intent;
   /** Meaningful for `search` only. */
   searchMode: SearchMode;
@@ -74,19 +89,12 @@ export interface Classification {
   semanticQuery: string;
   /** A slug, ordinal ("the second one") or title words naming a listing. */
   propertyRef: string | undefined;
-}
-
-export interface ExtractFiltersInput {
-  messages: ConversationTurn[];
-  searchMode: SearchMode;
-  /** The previous search's filters; always empty for a `new` search. */
-  previousFilters: PropertyFilters;
-  /** The previous qualitative preferences; always empty for a `new` search. */
-  previousSemanticQuery: string;
-  today: string;
-  facets: { cities: string[]; compounds: string[] };
-  /** Validation errors of the previous attempt, when this is the retry. */
-  validationErrors?: string[] | undefined;
+  /**
+   * Raw structured filters, meaningful for `search` only: every filter key is
+   * present, `null` meaning "not mentioned". The caller normalises and
+   * validates them.
+   */
+  filters: Record<string, unknown>;
 }
 
 export interface BookingExtractionInput {
@@ -153,18 +161,14 @@ export interface DetailsInput {
 export interface AgentModel {
   /** `false` when the selected provider lacks its credentials. */
   isConfigured(): boolean;
-  classify(
-    input: ClassifyInput,
-    options?: ModelCallOptions,
-  ): Promise<Classification>;
   /**
-   * Raw structured output: every filter key is present, `null` meaning "not
-   * mentioned". The caller normalises and validates it.
+   * ONE structured call: the intent of the latest message, the listing it
+   * refers to and, for a search, its mode and filters.
    */
-  extractFilters(
-    input: ExtractFiltersInput,
+  understand(
+    input: UnderstandInput,
     options?: ModelCallOptions,
-  ): Promise<Record<string, unknown>>;
+  ): Promise<Understanding>;
   extractBooking(
     input: BookingExtractionInput,
     options?: ModelCallOptions,

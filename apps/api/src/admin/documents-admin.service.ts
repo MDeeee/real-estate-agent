@@ -55,39 +55,55 @@ export class DocumentsAdminService {
     };
   }
 
+  /**
+   * Deletes a listing with its property and chunks. Only ACTIVE (CONFIRMED)
+   * bookings block it: the admin cancels them first. Cancelled bookings carry
+   * no live commitment, so they are removed in the same transaction.
+   */
   async remove(id: string): Promise<void> {
     const document = await this.prisma.document.findUnique({
       where: { id },
-      select: {
-        filename: true,
-        property: { select: { _count: { select: { bookings: true } } } },
-      },
+      select: { filename: true, property: { select: { id: true } } },
     });
     if (!document) {
       throw new NotFoundException(`Document ${id} not found.`);
     }
-    const bookings = document.property?._count.bookings ?? 0;
-    if (bookings > 0) {
-      throw this.hasBookings(document.filename, bookings);
-    }
     try {
-      await this.prisma.document.delete({ where: { id } });
+      await this.prisma.$transaction(async (tx) => {
+        const propertyId = document.property?.id;
+        if (propertyId) {
+          const active = await tx.booking.count({
+            where: { propertyId, status: { not: 'CANCELLED' } },
+          });
+          if (active > 0) {
+            throw this.hasActiveBookings(document.filename, active);
+          }
+          await tx.booking.deleteMany({
+            where: { propertyId, status: 'CANCELLED' },
+          });
+        }
+        await tx.document.delete({ where: { id } });
+      });
     } catch (error) {
+      // A booking created after the count above: still refused, never half-deleted.
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
       ) {
-        throw this.hasBookings(document.filename);
+        throw this.hasActiveBookings(document.filename);
       }
       throw error;
     }
   }
 
-  private hasBookings(filename: string, count?: number): ConflictException {
+  private hasActiveBookings(
+    filename: string,
+    count?: number,
+  ): ConflictException {
     const subject =
-      count === undefined ? 'has bookings' : `has ${count} booking(s)`;
+      count === undefined ? 'active booking(s)' : `${count} active booking(s)`;
     return new ConflictException(
-      `Cannot delete ${filename}: its property ${subject}. Cancel or remove the bookings first.`,
+      `Cannot delete ${filename}: its property has ${subject}. Cancel them in Bookings first.`,
     );
   }
 }

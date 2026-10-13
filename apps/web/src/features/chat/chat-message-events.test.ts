@@ -59,10 +59,39 @@ describe("applyEventToMessage", () => {
       type: "final",
       text: CONFIRMATION,
       citedSlugs: [],
-      intent: "book",
     });
     assert.equal(final.text, CONFIRMATION);
     assert.equal(final.streaming, false);
+  });
+
+  it("keeps the machine code of an error, such as a busy AI provider", () => {
+    const failed = applyEventToMessage(streaming, {
+      type: "error",
+      message: "The AI provider is busy right now. Please try again in a minute.",
+      code: "provider_busy",
+    });
+    assert.equal(
+      failed.error,
+      "The AI provider is busy right now. Please try again in a minute.",
+    );
+    assert.equal(failed.errorCode, "provider_busy");
+    assert.equal(failed.streaming, false);
+    // An older server sends no code.
+    assert.equal(
+      applyEventToMessage(streaming, { type: "error", message: "x" }).errorCode,
+      undefined,
+    );
+  });
+
+  it("keeps the unavailable code of a provider whose quota or key failed", () => {
+    const failed = applyEventToMessage(streaming, {
+      type: "error",
+      message: "The AI assistant is not available right now.",
+      code: "provider_unavailable",
+    });
+    assert.equal(failed.error, "The AI assistant is not available right now.");
+    assert.equal(failed.errorCode, "provider_unavailable");
+    assert.equal(failed.streaming, false);
   });
 
   it("appends tokens, records errors, ignores status and done", () => {

@@ -3,11 +3,32 @@ import type {
   AnswerInput,
   BookingExtraction,
   BookingExtractionInput,
-  Classification,
-  ClassifyInput,
   DetailsInput,
-  ExtractFiltersInput,
+  Intent,
+  SearchMode,
+  UnderstandInput,
+  Understanding,
 } from '../llm/agent-model.js';
+import type { PropertyFilters } from '../properties/property-filters.schema.js';
+
+/** The routing half of an understanding: what the fake's classify step decides. */
+export interface FakeClassification {
+  intent: Intent;
+  searchMode: SearchMode;
+  semanticQuery: string;
+  propertyRef: string | undefined;
+}
+
+/** What the fake's extractFilters step sees of an understanding call. */
+export interface FakeFilterInput {
+  messages: UnderstandInput['messages'];
+  searchMode: SearchMode;
+  previousFilters: PropertyFilters;
+  previousSemanticQuery: string;
+  today: string;
+  facets: UnderstandInput['facets'];
+  validationErrors?: string[] | undefined;
+}
 
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth'];
 
@@ -38,8 +59,10 @@ function allFilterKeysNull(): Record<string, unknown> {
  */
 export class FakeAgentModel implements AgentModel {
   configured = true;
-  readonly classifyCalls: ClassifyInput[] = [];
-  readonly filterCalls: ExtractFiltersInput[] = [];
+  readonly classifyCalls: UnderstandInput[] = [];
+  readonly filterCalls: FakeFilterInput[] = [];
+  /** Every understand call, i.e. every LLM call that routes a turn. */
+  readonly understandCalls: UnderstandInput[] = [];
   readonly bookingCalls: BookingExtractionInput[] = [];
   readonly answerCalls: AnswerInput[] = [];
   readonly detailsCalls: DetailsInput[] = [];
@@ -55,7 +78,35 @@ export class FakeAgentModel implements AgentModel {
     return this.configured;
   }
 
-  classify(input: ClassifyInput): Promise<Classification> {
+  /**
+   * The single combined call: the fake keeps its two scriptable steps
+   * (classify, then extractFilters for a search) and joins their results.
+   */
+  async understand(input: UnderstandInput): Promise<Understanding> {
+    this.understandCalls.push(input);
+    const classification = await this.classify(input);
+    if (classification.intent !== 'search') {
+      return { ...classification, filters: allFilterKeysNull() };
+    }
+    const searchMode = input.forceNewSearch ? 'new' : classification.searchMode;
+    // Like a real model that sees the whole transcript, the fake LEAKS the
+    // previous filters into a new search too (the graph's carry-over guard is
+    // what removes them); only the forced-new prompt hides them.
+    const filters = await this.extractFilters({
+      messages: input.messages,
+      searchMode,
+      previousFilters: input.forceNewSearch ? {} : input.previousFilters,
+      previousSemanticQuery: input.forceNewSearch
+        ? ''
+        : input.previousSemanticQuery,
+      today: input.today,
+      facets: input.facets,
+      validationErrors: input.validationErrors,
+    });
+    return { ...classification, searchMode, filters };
+  }
+
+  classify(input: UnderstandInput): Promise<FakeClassification> {
     this.classifyCalls.push(input);
     const text = lastUserText(input.messages).toLowerCase();
     const ordinal = ORDINALS.findIndex((word) => text.includes(word));
@@ -99,10 +150,12 @@ export class FakeAgentModel implements AgentModel {
       /new cairo|sheikh zayed|الشيخ زايد|apartment|villa|شقة|فيلا|rent|buy|sale/.test(
         text,
       );
-    const searchMode = !refines && standsAlone ? 'new' : 'refine';
+    const searchMode =
+      input.forceNewSearch || (!refines && standsAlone) ? 'new' : 'refine';
     // Like the real model: state the FULL current preferences, carrying the
-    // previous ones over (refine only) unless the visitor drops them.
-    const carried = searchMode === 'refine' ? input.previousSemanticQuery : '';
+    // previous ones over (leaking them into a new search too, unless the
+    // forced-new prompt hides them) unless the visitor drops them.
+    const carried = input.forceNewSearch ? '' : input.previousSemanticQuery;
     const wanted = /garden view/.test(text)
       ? 'garden view'
       : /quiet/.test(text)
@@ -118,7 +171,7 @@ export class FakeAgentModel implements AgentModel {
     });
   }
 
-  extractFilters(input: ExtractFiltersInput): Promise<Record<string, unknown>> {
+  extractFilters(input: FakeFilterInput): Promise<Record<string, unknown>> {
     this.filterCalls.push(input);
     const queued = this.filterQueue.shift();
     if (queued instanceof Error) return Promise.reject(queued);

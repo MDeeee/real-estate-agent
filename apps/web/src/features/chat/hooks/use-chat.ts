@@ -18,6 +18,22 @@ export const RESTORE_TIMEOUT_MS = 5000;
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 const NEW_CHAT_ERROR = "Could not start a new chat. Please try again.";
 
+/**
+ * Where an action came from. Focusing the textarea opens the on-screen
+ * keyboard on a phone and covers the reply, so only the composer's own send
+ * (the keyboard is already up) always takes focus; a suggestion chip, Retry or
+ * Stop does so on a mouse or trackpad only.
+ */
+export type ActionSource = "composer" | "other";
+
+/** A device with a precise pointer (mouse, trackpad), not a touch screen. */
+function hasFinePointer(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: fine)").matches
+  );
+}
+
 let counter = 0;
 function nextId(): string {
   counter += 1;
@@ -59,6 +75,11 @@ export function useChat() {
   const [restoring, setRestoring] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The composer's textarea: focus goes back to it after the visitor's own send, and after a chip, Retry or Stop on a fine pointer. */
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const returnFocus = useCallback((source: ActionSource) => {
+    if (source === "composer" || hasFinePointer()) inputRef.current?.focus();
+  }, []);
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
   const gateRef = useRef(new ResetGate());
@@ -123,9 +144,13 @@ export function useChat() {
   );
 
   const send = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, source: ActionSource = "other") => {
       const text = rawText.trim();
       if (!text || busyRef.current) return;
+      // The visitor's own action (Enter, Send, a suggestion, Retry): the button
+      // they used is about to be disabled or removed, so focus would be lost.
+      // Done now, not when the reply ends: by then they may have gone elsewhere.
+      returnFocus(source);
 
       const generation = generationRef.current;
       const current = () => generation === generationRef.current;
@@ -194,10 +219,14 @@ export function useChat() {
         }
       }
     },
-    [applyEvent, patchLast],
+    [applyEvent, patchLast, returnFocus],
   );
 
-  const stop = useCallback(() => abortRef.current?.abort(), []);
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    // The Stop button disappears with the request.
+    returnFocus("other");
+  }, [returnFocus]);
 
   const retry = useCallback(() => {
     if (busyRef.current) return;
@@ -243,6 +272,7 @@ export function useChat() {
     restoring,
     resetting,
     notice,
+    inputRef,
     send,
     stop,
     retry,

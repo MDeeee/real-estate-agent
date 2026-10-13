@@ -10,7 +10,7 @@ An AI assistant for the Egyptian property market, in Arabic and English. A visit
 - **Arabic (including Egyptian dialect) and English**: the agent replies in the visitor's language (Arabic when at least 30 percent of the latest message's letters are Arabic, otherwise English; decided in code, not by the model).
 - **Refinements and follow-ups**: "cheaper", "in Zayed instead", "tell me more about the second one".
 - **Direct viewing booking** in chat: collects name, Egyptian mobile number and date, validates them, confirms with a reference. No approval step.
-- **Admin dashboard** (`/admin`): upload one or many `.md` files, see indexing status and exact validation errors, re-index, delete, list bookings.
+- **Admin dashboard** (`/admin`): upload one or many `.md` files, see indexing status and exact validation errors, re-index, delete, list and cancel bookings.
 - **Idempotent, safe ingestion**: the same content hash is a no-op. A file whose slug already belongs to a listing with different content is only written after the admin confirms replacing it; then its chunks are replaced.
 - **Swappable LLM**: Claude or any OpenAI-compatible endpoint (Gemini and Groq free tiers work), chosen by env. The app boots without a key; only chat answers `503`.
 - **Eval suite** with a regression gate, runnable locally or from a manual GitHub workflow.
@@ -43,13 +43,12 @@ One NestJS process serves the built web app (a Vite and React single-page app) a
 
 ```mermaid
 flowchart TD
-  begin(["start"]) --> route{"route"}
-  route -->|search| extract_filters
-  route -->|details| details
-  route -->|book| book
-  route -->|smalltalk| smalltalk
-  route -->|off_topic| refuse
-  extract_filters --> retrieve
+  begin(["start"]) --> understand{"understand"}
+  understand -->|search| retrieve
+  understand -->|details| details
+  understand -->|book| book
+  understand -->|smalltalk| smalltalk
+  understand -->|off_topic| refuse
   retrieve --> answer
   answer --> trim
   details --> trim
@@ -61,14 +60,15 @@ flowchart TD
 
 | Node | What it does |
 | --- | --- |
-| `route` | One structured LLM call: intent (`search`, `details`, `book`, `smalltalk`, `off_topic`), qualitative preferences; the reply language is detected from the visitor's message, not asked of the model |
-| `extract_filters` | Turns the request into validated filters (zod), one retry on invalid output; refinements start from the previous filters |
+| `understand` | ONE structured LLM call ([ADR 0006](docs/adr/0006-one-llm-call-to-understand-a-turn.md)): the intent (`search`, `details`, `book`, `smalltalk`, `off_topic`), the listing referred to, and for a search the mode (new or refine), the qualitative preferences and the filters. The output is validated with zod (one retry); a change of sale/rent or property type forces a new search; refinements start from the previous filters. "The second one", "التاني", "the last one" are read from the visitor's own words against the list shown last, and the model's reference is only the fallback. The reply language is detected from the visitor's message, not asked of the model |
 | `retrieve` | Filter, then rank by vector similarity (see below); top 5 |
 | `answer` | Streams a reply grounded in the retrieved listings, then runs the citation post-check |
-| `details` | Resolves "the second one" or a title against the last results and answers from that listing's full text |
+| `details` | Resolves the listing (position, slug or title) against the last results and answers from its full text |
 | `book` | Collects and validates name, phone, date and an optional time (09:00-21:00, asked once, "any time" accepted); creates the booking only when complete |
 | `smalltalk`, `refuse` | Short localized static replies |
 | `trim` | Caps the stored history at the last 20 messages |
+
+LLM calls per turn: a search (new or refined) makes two (`understand`, `answer`), a details turn two (`understand`, the answer), a booking turn two (`understand`, the booking extraction), smalltalk and refusals one. The only extra call is the rare identity safety net, which re-asks `understand` once as a new search.
 
 ## How retrieval works
 
@@ -78,7 +78,7 @@ Retrieval is **filter, then rank** ([ADR 0004](docs/adr/0004-filter-then-rank-re
 
 - **Grounding post-check**: the answer may only cite `[slug]` ids of listings retrieved for that turn; any other citation is removed from the text before the visitor sees it.
 - **Data, not instructions**: listing text and conversation turns are passed to the model escaped and labelled as data; prompts tell the model never to follow instructions found in them. Off-topic and role-override requests get a static refusal.
-- **Budgets**: 1000-character messages, 16 KB request bodies, a 60 s timeout per turn, at most 12 graph steps, a per-IP chat rate limit and a global per-minute chat budget that caps LLM spend.
+- **Budgets**: 1000-character messages, 16 KB request bodies, a per-call LLM timeout and a per-turn timeout (`CHAT_TURN_TIMEOUT_MS`), at most 12 graph steps, a per-IP chat rate limit and a global per-minute chat budget that caps LLM spend.
 - **Rollback**: a turn that fails, times out or is stopped leaves the stored conversation exactly as before, so a retry never duplicates a message.
 - **PII masking**: phone numbers are masked in the history endpoint (`010****4567`); logs carry only a short hash of the conversation id.
 - **Cookie-held conversation ids**: the id is a bearer token for the history, so the browser never sees it (`HttpOnly`, `SameSite=Lax`, `Secure` in production).
@@ -150,7 +150,9 @@ Open `/admin`, paste the token and press **Log in**. What an admin can do:
 
 - **Upload** `.md` listings (YAML frontmatter plus a markdown body; the format is in [Listing file format](#listing-file-format) and complete examples are in [`samples/properties`](samples/properties)).
 - **Re-index** a document, or **delete** it.
-- **View bookings** made in the chat.
+- **View bookings** made in the chat, and **cancel** one (a confirmation dialog shows its reference, property, date, time and name first). A cancelled booking stays in the list, muted, and its slot is not re-booked by the chat.
+
+**Deleting a listing** is blocked only by its _active_ bookings: the dashboard (and the API, `409`) says "Cannot delete <file>: its property has N active booking(s). Cancel them in Bookings first." Once only cancelled bookings remain, deleting the listing also deletes them, in the same transaction.
 
 A listing's identity is the `slug` in its frontmatter. Uploading a file whose slug already exists is safe: if the content is identical it is skipped (`unchanged`), and if it differs the API writes nothing and the dashboard asks, per file, whether to replace the existing listing (Replace, Skip, Replace all, Skip all). Only approved files are uploaded again, and an approval names the exact stored version you saw: if the listing changed in the meantime, the file comes back as a conflict again and nothing is overwritten. Replacing keeps the listing's bookings.
 
@@ -176,7 +178,9 @@ OPENAI_COMPAT_MODEL=gemini-3.5-flash-lite
 
 `gemini-3.5-flash-lite` is the default: it recorded the committed eval baseline and had enough free-tier headroom for two full eval runs plus a browser pass (over 100 calls in one day). The free tier caps requests per day for each model (20 per day for `gemini-3.5-flash` when this was tested; the larger `3.7`/`3.8` flash models hung or returned 503 under load), so to switch model change `OPENAI_COMPAT_MODEL` and restart; the eval gate refuses a model other than the baseline's until you re-record it. Free-tier latency varies from about 1 to 10 seconds per model call, and a search turn (several calls) can take 30 to 50 seconds, so one chat turn is allowed `CHAT_TURN_TIMEOUT_MS` (default `90000`) before it is rolled back.
 
-Fallback if Gemini is rate limited: Groq. Same four lines with `OPENAI_COMPAT_BASE_URL=https://api.groq.com/openai/v1`, a key from <https://console.groq.com/keys> and a Groq model name.
+Fallback if Gemini is rate limited: Groq. Same lines with `OPENAI_COMPAT_BASE_URL=https://api.groq.com/openai/v1`, `OPENAI_COMPAT_MODEL=openai/gpt-oss-120b` and a free key from <https://console.groq.com/keys> (no card; the free tier is about 8k tokens per minute per model). The same lines are in `.env.example`.
+
+**Fail fast.** LangChain retries a failed call silently with backoff, which used to stretch a slow turn until it hit `CHAT_TURN_TIMEOUT_MS`. Now `LLM_MAX_RETRIES` (default `1`) caps the retries and `LLM_CALL_TIMEOUT_MS` (default `30000`) bounds each LLM call (the whole call for structured output, the wait for the first token for a streamed answer). When the provider answers 429, 503 or "overloaded", or one call times out, the turn ends at once with a friendly error event (code `provider_busy`: "The AI provider is busy right now. Please try again in a minute.", in Arabic for an Arabic conversation) and is rolled back like any failed turn; the chat shows it with a Try again button. A permanent failure (exhausted quota or billing, a per-day quota, a missing or rejected API key) is not "busy": the turn ends with code `provider_unavailable` ("The AI assistant is not available right now.") and is logged with `reason` `provider_quota_or_auth`. `chat_turn_failed` is logged with `reason` `provider_busy`, `provider_quota_or_auth`, `timeout` (the whole turn exceeded `CHAT_TURN_TIMEOUT_MS`) or `error`.
 
 For Claude set `LLM_PROVIDER=claude` and `ANTHROPIC_API_KEY`. If a provider rejects tool calling for structured output, try `LLM_STRUCTURED_METHOD=jsonSchema`.
 
@@ -192,7 +196,7 @@ A turn that fails, times out or is stopped by the visitor is rolled back: the st
 
 ## Admin usage
 
-Sign in at `/admin` (see [Admin login](#admin-login)) and upload one or more `.md` files (200 KB each; the dashboard sends them 5 per request, the API accepts up to 10). Each document shows `PENDING`, `INDEXED` or `FAILED`; a failed one shows the exact validation error, and every document can be re-indexed or deleted. Bookings made in chat are listed on the same dashboard.
+Sign in at `/admin` (see [Admin login](#admin-login)) and upload one or more `.md` files (200 KB each; the dashboard sends them 5 per request, the API accepts up to 10). Each document shows `PENDING`, `INDEXED` or `FAILED`; a failed one shows the exact validation error, and every document can be re-indexed or deleted (see the delete rule above). Bookings made in chat are listed on the same dashboard, each active one with a **Cancel** button.
 
 The same endpoint works from a script, authenticated with the `x-admin-token` header. State-changing requests must also carry `X-Requested-With: fetch` (the CSRF guard). The answer has one result per file: `created`, `updated`, `unchanged`, `failed` or `conflict`. A `conflict` (the slug belongs to a listing with different content) writes nothing and describes the listing it would overwrite; repeat the upload with one `replacements` field per listing you approve. Each is a JSON object with the `slug` and the `existingContentHash` that the conflict reported (at most 10); if the stored listing no longer has that hash, you get a conflict again with the fresh details:
 
@@ -206,6 +210,21 @@ curl -H "x-admin-token: $ADMIN_TOKEN" -H "X-Requested-With: fetch" \
   -F "files=@samples/properties/zamalek-apartment-rent.md" \
   -F 'replacements={"slug":"zamalek-apartment-rent","existingContentHash":"<hash from the conflict>"}' \
   http://localhost:3001/api/admin/documents
+```
+
+Admin endpoints (all under `/api/admin`, all need the admin session cookie or `x-admin-token`; the state-changing ones also `X-Requested-With: fetch`):
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /documents?page&pageSize` | List documents with status and chunk count |
+| `POST /documents` | Upload `.md` files (multipart `files`, optional `replacements`) |
+| `POST /documents/:id/reindex` | Re-index one document |
+| `DELETE /documents/:id` | Delete a listing; `409` while it has active bookings, otherwise its cancelled bookings go with it |
+| `GET /bookings?page&pageSize` | List bookings (reference, status, property) |
+| `POST /bookings/:id/cancel` | Set a booking to `CANCELLED` and return it. Idempotent; `400` for a malformed id, `404` for an unknown one |
+
+```bash
+curl -X POST -H "x-admin-token: $ADMIN_TOKEN" -H "X-Requested-With: fetch"   http://localhost:3001/api/admin/bookings/<booking id>/cancel
 ```
 
 ### Listing file format
@@ -248,15 +267,15 @@ Unknown keys are rejected, so a typo surfaces as an error instead of silently mi
 pnpm test        # api and web, both Vitest
 ```
 
-- **API: 648 tests in Vitest.** 531 are unit tests (graph transitions with a fake model and an in-memory checkpointer, citations, booking validation, listing references, schemas, eval scoring). 117 are integration tests against a real Postgres: ingestion, admin, search, retrieval, SSE chat, cookies and booking. They use a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI.
-- **Web: 117 tests in Vitest** with Testing Library: pure helpers (citations, URL and filter mapping, stream events, the HTTP client), the upload and replace-confirmation flow, and the admin route guard.
+- **API: 789 tests in Vitest.** Most are unit tests (graph transitions with a fake model and an in-memory checkpointer, citations, booking validation, listing references, schemas, eval scoring, provider-busy handling, ordinal resolution). The rest are integration tests against a real Postgres: ingestion, admin, search, retrieval, SSE chat, cookies and booking. They use a separate `realestate_test` database that is created and migrated automatically; without Postgres they are skipped locally and fail in CI.
+- **Web: 164 tests in Vitest** with Testing Library: pure helpers (citations, URL and filter mapping, stream events, the HTTP client), the upload and replace-confirmation flow, the booking cancel dialog, chat scrolling and focus, and the admin route guard.
 - No test calls a real LLM; the model sits behind an `AgentModel` port that tests replace with a fake. Quality against a real model is measured by the evals below.
 
 `pnpm lint`, `pnpm typecheck` and `pnpm build` cover both apps; CI runs all four on every push and pull request.
 
 ## Evals
 
-Unit tests prove the plumbing; the eval suite measures the agent itself. `pnpm eval` runs 14 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 4 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse", and a fresh request after a Sheikh Zayed search that must not inherit the city). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
+Unit tests prove the plumbing; the eval suite measures the agent itself. `pnpm eval` runs 15 cases over the 20 sample listings through the **real** compiled graph, the real model and real `bge-m3` embeddings: 6 English, 4 Arabic (Egyptian dialect) and 5 multi-turn follow-ups ("cheaper", "tell me more about the second one", "tell me more about the townhouse", and two fresh requests after a Sheikh Zayed search that must not inherit the city or the budget). One English case is an off-topic request that tries to override the assistant, and one asks to book a viewing and stops before any personal data is given.
 
 ```bash
 pnpm seed                        # listings must be indexed first
@@ -305,7 +324,7 @@ Without an LLM configured, `pnpm eval` prints `Eval skipped: no LLM configured (
 | Secret | `ANTHROPIC_API_KEY` | For Claude | Also set variable `LLM_PROVIDER=claude` |
 | Variable | `LLM_PROVIDER` | No | Default `openai-compatible` |
 | Variable | `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_MODEL` | No | Default: Gemini (`gemini-3.5-flash-lite`, the model of the committed baseline; the gate refuses a different model) |
-| Variable | `CLAUDE_MODEL`, `LLM_STRUCTURED_METHOD` | No | |
+| Variable | `CLAUDE_MODEL`, `LLM_STRUCTURED_METHOD`, `LLM_MAX_RETRIES`, `LLM_CALL_TIMEOUT_MS` | No | |
 | Variable | `EVAL_DELAY_MS`, `EVAL_TOLERANCE`, `EVAL_RETRY_WAIT_MS` | No | |
 
 **Recording the baseline in CI.** The runner cannot commit, so run the workflow with the `update_baseline` input ticked. It runs `pnpm eval --update-baseline` and uploads `apps/api/evals/baseline.json` as the `eval-baseline` artifact. Download it and commit it as `apps/api/evals/baseline.json`. Until a baseline is committed, every normal (gated) run in CI fails with `No baseline yet`.
@@ -362,6 +381,7 @@ To create a new migration run `pnpm db:migrate:create`. Prisma cannot model the 
 | [0003](docs/adr/0003-langgraph-for-agent-flow.md) | LangGraph for the agent flow |
 | [0004](docs/adr/0004-filter-then-rank-retrieval.md) | Filter then rank retrieval |
 | [0005](docs/adr/0005-vite-spa-served-by-nest-over-nextjs.md) | Vite SPA served by NestJS, replacing Next.js |
+| [0006](docs/adr/0006-one-llm-call-to-understand-a-turn.md) | One LLM call to understand a turn (route and filter extraction merged), fail-fast LLM calls |
 
 More: [docs/PLAN.md](docs/PLAN.md) for scope and milestones, [AGENTS.md](AGENTS.md) for contributor and coding-agent conventions.
 

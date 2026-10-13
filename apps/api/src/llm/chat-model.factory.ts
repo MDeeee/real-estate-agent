@@ -20,6 +20,11 @@ export class ChatModelFactory {
     return this.config.get('LLM_STRUCTURED_METHOD', { infer: true });
   }
 
+  /** Per-call timeout (`LLM_CALL_TIMEOUT_MS`) the agent model enforces on every LLM call. */
+  get callTimeoutMs(): number {
+    return this.config.get('LLM_CALL_TIMEOUT_MS', { infer: true });
+  }
+
   /** Names of the environment variables the selected provider still lacks. */
   missingConfiguration(): string[] {
     const get = <K extends keyof Env>(key: K) =>
@@ -49,17 +54,26 @@ export class ChatModelFactory {
     const missing = this.missingConfiguration();
     if (missing.length > 0) throw new LlmNotConfiguredError(missing);
 
+    // LangChain retries a failed call silently with backoff (6 times by
+    // default), which stretches a slow turn; `maxRetries` caps it.
+    const maxRetries = this.config.get('LLM_MAX_RETRIES', { infer: true });
+    const timeout = this.callTimeoutMs;
+
     if (this.config.get('LLM_PROVIDER', { infer: true }) === 'claude') {
       // No `temperature` / `topP`: Claude 5.5 models reject non-default sampling.
       return new ChatAnthropic({
         model: this.config.get('CLAUDE_MODEL', { infer: true }),
         apiKey: this.config.get('ANTHROPIC_API_KEY', { infer: true }),
+        maxRetries,
+        clientOptions: { timeout },
       });
     }
     return new ChatOpenAI({
       model: this.config.get('OPENAI_COMPAT_MODEL', { infer: true }),
       apiKey: this.config.get('OPENAI_COMPAT_API_KEY', { infer: true }),
       temperature: 0,
+      maxRetries,
+      timeout,
       configuration: {
         baseURL: this.config.get('OPENAI_COMPAT_BASE_URL', { infer: true }),
       },

@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const bookingItemSchema = z.object({
   id: z.string(),
+  /** The short code the visitor was given in the chat. */
+  reference: z.string(),
   name: z.string(),
   phone: z.string(),
   /** A calendar day, `YYYY-MM-DD`: not an instant, never shifted to a time zone. */

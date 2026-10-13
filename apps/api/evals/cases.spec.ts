@@ -23,14 +23,14 @@ async function sampleSlugs(): Promise<Set<string>> {
 describe('cases.json', () => {
   it('is valid and has the planned mix', async () => {
     const cases = await loadCases(resolve(import.meta.dirname, 'cases.json'));
-    expect(cases).toHaveLength(14);
+    expect(cases).toHaveLength(15);
 
     const multiTurn = cases.filter(({ turns }) => turns.length > 1);
     const singleTurn = cases.filter(({ turns }) => turns.length === 1);
     const arabic = singleTurn.filter(({ turns }) =>
       turns.some((turn) => ARABIC.test(turn)),
     );
-    expect(multiTurn).toHaveLength(4);
+    expect(multiTurn).toHaveLength(5);
     expect(arabic).toHaveLength(4);
     expect(singleTurn.length - arabic.length).toBe(6);
 

@@ -188,6 +188,32 @@
     }
   },
   {
+    "id": "multi-new-search-drops-city-and-budget",
+    "description": "Multi-turn: a new apartment-for-sale request after a Zayed villa-for-rent search must not keep the city or the 50k budget",
+    "turns": [
+      "I am looking for a villa to rent in Sheikh Zayed, up to 50,000 EGP a month.",
+      "3 bedroom apartment for sale."
+    ],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "type": "apartment",
+        "listing": "SALE",
+        "bedroomsMin": 3
+      },
+      "anyOfSlugs": [
+        "maadi-apartment-sale",
+        "new-cairo-fifth-settlement-apartment-sale",
+        "october-apartment-sale"
+      ],
+      "noneOfSlugs": [
+        "sheikh-zayed-apartment-rent",
+        "sheikh-zayed-duplex-sale",
+        "sheikh-zayed-townhouse-sale"
+      ]
+    }
+  },
+  {
     "id": "multi-second-one-details",
     "description": "Multi-turn: 'the second one' must resolve against the listings just shown",
     "turns": [

@@ -4,7 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { HumanMessage, RemoveMessage } from '@langchain/core/messages';
 import type { BookingSummary } from '../bookings/bookings.service.js';
 import type { Env } from '../config/env.schema.js';
-import type { TokenUsage } from '../llm/agent-model.js';
+import type { Language, TokenUsage } from '../llm/agent-model.js';
+import {
+  isProviderBusyError,
+  isProviderUnavailableError,
+} from '../llm/provider-errors.js';
 import { RECURSION_LIMIT, TRIM_NODE } from './agent-graph.js';
 import { AgentGraphService } from './agent-graph.service.js';
 import {
@@ -15,7 +19,7 @@ import {
   initialValues,
 } from './agent-state.js';
 import type { ChatCard } from './chat-card.js';
-import type { ChatEvent, NodeEvent } from './chat-events.js';
+import type { ChatErrorCode, ChatEvent, NodeEvent } from './chat-events.js';
 import {
   TURN_BOOKING_KEY,
   type TurnBooking,
@@ -23,8 +27,13 @@ import {
   assistantMessage,
   messageText,
 } from './nodes/node-support.js';
+import { detectLanguage } from './language.js';
 import { maskPhone, maskPhonesInText, threadLogId } from './pii.js';
-import { bookingConfirmation } from './replies.js';
+import {
+  bookingConfirmation,
+  providerBusyReply,
+  providerUnavailableReply,
+} from './replies.js';
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
@@ -43,8 +52,29 @@ export const THREAD_BUSY_MESSAGE =
 /** Everything a turn can change besides `messages`; restored when the turn fails. */
 const RESTORED_KEYS = Object.keys(initialValues()) as RestorableKey[];
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/** Never throws: `JSON.stringify` fails on circular structures and BigInt. */
+function describeValue(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '[unprintable value]';
+    }
+  }
+}
+
+/** The error message plus its cause chain, so a wrapped provider failure keeps its real reason (status, quota) in the logs. Never throws. */
+export function describeError(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current !== undefined; depth += 1) {
+    parts.push(describeValue(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(' <- ').slice(0, 600);
 }
 
 /** The state after a turn, folded from the per-node updates the graph streams. */
@@ -131,13 +161,20 @@ export class ChatService {
     const config = { configurable: { thread_id: threadId } };
     const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
     const timeout = AbortSignal.timeout(this.turnTimeoutMs);
-    const signal = AbortSignal.any([clientSignal, timeout]);
+    // Also aborted when the caller stops reading, so a run in flight stops with it.
+    const leaving = new AbortController();
+    const signal = AbortSignal.any([clientSignal, timeout, leaving.signal]);
 
     let before: Awaited<ReturnType<AgentGraphService['graph']['getState']>>;
     try {
       before = await this.agent.graph.getState(config);
     } catch (error) {
-      yield* this.failure(log, error, false);
+      yield* this.failure(
+        log,
+        error,
+        false,
+        detectLanguage(message, initialValues().language),
+      );
       return;
     }
     const existed = before.config.configurable?.['checkpoint_id'] !== undefined;
@@ -180,6 +217,7 @@ export class ChatService {
     } finally {
       // Also runs when the caller stops iterating early (the client is gone).
       if (!committed) {
+        leaving.abort();
         if (turnBooking.booking) {
           kept = await this.keepBookedTurn(
             threadId,
@@ -202,7 +240,12 @@ export class ChatService {
     if (!committed) {
       if (clientSignal.aborted) return;
       if (kept === undefined) {
-        yield* this.failure(log, failure, timeout.aborted);
+        yield* this.failure(
+          log,
+          failure,
+          timeout.aborted,
+          detectLanguage(message, beforeValues.language ?? 'en'),
+        );
         return;
       }
       // The booking stands: tell the visitor so instead of reporting an error.
@@ -242,17 +285,38 @@ export class ChatService {
   private *failure(
     log: string,
     error: unknown,
-    timedOut: boolean,
+    turnTimedOut: boolean,
+    language: Language,
   ): Generator<ChatEvent> {
+    // The turn deadline wins; otherwise the adapter's verdict on the provider.
+    const code: ChatErrorCode = turnTimedOut
+      ? 'timeout'
+      : isProviderUnavailableError(error)
+        ? 'provider_unavailable'
+        : isProviderBusyError(error)
+          ? 'provider_busy'
+          : 'error';
     this.logger.error(
       JSON.stringify({
         event: 'chat_turn_failed',
         thread: log,
-        timedOut,
+        reason:
+          code === 'provider_unavailable' ? 'provider_quota_or_auth' : code,
         error: describeError(error),
       }),
     );
-    yield { type: 'error', message: timedOut ? TIMEOUT_ERROR : GENERIC_ERROR };
+    yield {
+      type: 'error',
+      message:
+        code === 'provider_unavailable'
+          ? providerUnavailableReply(language)
+          : code === 'provider_busy'
+            ? providerBusyReply(language)
+            : code === 'timeout'
+              ? TIMEOUT_ERROR
+              : GENERIC_ERROR,
+      code,
+    };
     yield { type: 'done' };
   }
 

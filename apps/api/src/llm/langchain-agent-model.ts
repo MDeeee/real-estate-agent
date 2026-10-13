@@ -12,28 +12,26 @@ import type {
   AnswerInput,
   BookingExtraction,
   BookingExtractionInput,
-  Classification,
-  ClassifyInput,
   ConversationTurn,
   DetailsInput,
-  ExtractFiltersInput,
   ModelCallOptions,
   TokenUsage,
+  UnderstandInput,
+  Understanding,
 } from './agent-model.js';
 import { ChatModelFactory } from './chat-model.factory.js';
+import { bookingExtractionSchema, understandingSchema } from './llm-schemas.js';
 import {
-  bookingExtractionSchema,
-  classificationSchema,
-  llmFilterSchema,
-} from './llm-schemas.js';
+  StructuredOutputError,
+  asProviderError,
+} from './provider-errors.js';
 import {
   type ChatPrompt,
   type PromptMessage,
   answerPrompt,
-  classifyMessages,
   detailsPrompt,
   extractBookingMessages,
-  extractFiltersMessages,
+  understandMessages,
 } from './prompts.js';
 
 function toLangChain(messages: PromptMessage[]): BaseMessage[] {
@@ -78,14 +76,14 @@ export class LangChainAgentModel implements AgentModel {
     return this.factory.isConfigured();
   }
 
-  async classify(
-    input: ClassifyInput,
+  async understand(
+    input: UnderstandInput,
     options?: ModelCallOptions,
-  ): Promise<Classification> {
+  ): Promise<Understanding> {
     const result = await this.structured(
-      'classify',
-      classificationSchema,
-      toLangChain(classifyMessages(input)),
+      'understand',
+      understandingSchema,
+      toLangChain(understandMessages(input)),
       options,
     );
     return {
@@ -93,19 +91,8 @@ export class LangChainAgentModel implements AgentModel {
       searchMode: result.searchMode,
       semanticQuery: result.semanticQuery.trim(),
       propertyRef: result.propertyRef?.trim() || undefined,
+      filters: result.filters,
     };
-  }
-
-  extractFilters(
-    input: ExtractFiltersInput,
-    options?: ModelCallOptions,
-  ): Promise<Record<string, unknown>> {
-    return this.structured(
-      'extract_filters',
-      llmFilterSchema,
-      toLangChain(extractFiltersMessages(input)),
-      options,
-    );
   }
 
   async extractBooking(
@@ -143,6 +130,11 @@ export class LangChainAgentModel implements AgentModel {
     return this.stream(toChatMessages(detailsPrompt(input)), options);
   }
 
+  /**
+   * One structured-output call, bounded by `LLM_CALL_TIMEOUT_MS`. A provider
+   * that answers 429/503/"overloaded", or does not answer in time, surfaces as
+   * a `ProviderBusyError` so the turn can end at once.
+   */
   private async structured<TSchema extends ZodType<Record<string, unknown>>>(
     name: string,
     schema: TSchema,
@@ -159,29 +151,60 @@ export class LangChainAgentModel implements AgentModel {
         'The configured chat model does not support structured output.',
       );
     }
-    const { raw, parsed } = (await runnable.invoke(messages, {
-      signal: options.signal,
-    })) as { raw: BaseMessage; parsed: z.output<TSchema> | null };
-    addUsage(options.usage, (raw as AIMessage).usage_metadata);
-    if (parsed === null || parsed === undefined) {
-      throw new Error(`The model returned no valid "${name}" output.`);
+    const timeout = AbortSignal.timeout(this.factory.callTimeoutMs);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, timeout])
+      : timeout;
+    let result: { raw: BaseMessage; parsed: z.output<TSchema> | null };
+    try {
+      result = (await runnable.invoke(messages, { signal })) as typeof result;
+    } catch (error) {
+      throw asProviderError(error, {
+        callTimedOut: timeout.aborted,
+        aborted: options.signal?.aborted === true,
+      });
     }
-    return parsed;
+    addUsage(options.usage, (result.raw as AIMessage).usage_metadata);
+    if (result.parsed === null || result.parsed === undefined) {
+      throw new StructuredOutputError(name);
+    }
+    return result.parsed;
   }
 
+  /**
+   * A streamed answer. The per-call timeout is the wait for the first token:
+   * once the provider is answering, the turn deadline bounds the rest.
+   */
   private async *stream(
     messages: BaseMessage[],
     options: ModelCallOptions = {},
   ): AsyncGenerator<string> {
+    const callTimeout = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      callTimeout.abort();
+    }, this.factory.callTimeoutMs);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, callTimeout.signal])
+      : callTimeout.signal;
     let combined: AIMessageChunk | undefined;
-    const chunks = await this.factory
-      .create()
-      .stream(messages, { signal: options.signal });
-    for await (const chunk of chunks) {
-      const aiChunk = chunk as AIMessageChunk;
-      combined = combined ? combined.concat(aiChunk) : aiChunk;
-      const text = chunkText(aiChunk);
-      if (text) yield text;
+    try {
+      const chunks = await this.factory.create().stream(messages, { signal });
+      for await (const chunk of chunks) {
+        clearTimeout(timer);
+        const aiChunk = chunk as AIMessageChunk;
+        combined = combined ? combined.concat(aiChunk) : aiChunk;
+        const text = chunkText(aiChunk);
+        if (text) yield text;
+      }
+    } catch (error) {
+      throw asProviderError(error, {
+        callTimedOut: timedOut,
+        aborted: options.signal?.aborted === true,
+      });
+    } finally {
+      clearTimeout(timer);
     }
     addUsage(options.usage, combined?.usage_metadata);
   }

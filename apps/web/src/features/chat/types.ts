@@ -19,4 +19,6 @@ export interface ChatMessage {
   /** The visitor pressed Stop: a partial reply is kept for now but not stored by the server; on a visitor message it marks one that got no reply. */
   stopped?: boolean;
   error?: string;
+  /** Machine code of `error` when the server sent one ("provider_busy", "provider_unavailable", "timeout", "error"). */
+  errorCode?: string;
 }

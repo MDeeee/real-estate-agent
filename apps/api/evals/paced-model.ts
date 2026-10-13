@@ -3,11 +3,10 @@ import type {
   AnswerInput,
   BookingExtraction,
   BookingExtractionInput,
-  Classification,
-  ClassifyInput,
   DetailsInput,
-  ExtractFiltersInput,
   ModelCallOptions,
+  UnderstandInput,
+  Understanding,
 } from '../src/llm/agent-model.js';
 
 const realSleep = (ms: number): Promise<void> =>
@@ -38,18 +37,11 @@ export class PacedAgentModel implements AgentModel {
     return this.inner.isConfigured();
   }
 
-  classify(
-    input: ClassifyInput,
+  understand(
+    input: UnderstandInput,
     options?: ModelCallOptions,
-  ): Promise<Classification> {
-    return this.call(() => this.inner.classify(input, options));
-  }
-
-  extractFilters(
-    input: ExtractFiltersInput,
-    options?: ModelCallOptions,
-  ): Promise<Record<string, unknown>> {
-    return this.call(() => this.inner.extractFilters(input, options));
+  ): Promise<Understanding> {
+    return this.call(() => this.inner.understand(input, options));
   }
 
   extractBooking(

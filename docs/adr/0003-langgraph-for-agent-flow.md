@@ -9,7 +9,7 @@ The assistant must route between distinct behaviours (search, property details, 
 
 ## Decision
 
-Model the agent as a LangGraph.js `StateGraph` with explicit nodes (`route`, `extract_filters`, `retrieve`, `answer`, `book`, `refuse`) and typed state (`messages`, `intent`, `filters`, `candidates`, `bookingDraft`). Every LLM call that feeds control flow uses zod-validated structured output. Conversation state is persisted with the Postgres checkpointer, keyed by a thread id per browser. A maximum step count bounds each run.
+Model the agent as a LangGraph.js `StateGraph` with explicit nodes (`understand`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`, `trim`; the first version had separate `route` and `extract_filters` nodes, merged by [ADR 0006](0006-one-llm-call-to-understand-a-turn.md)) and typed state (`messages`, `intent`, `filters`, `candidates`, `bookingDraft`). Every LLM call that feeds control flow uses zod-validated structured output. Conversation state is persisted with the Postgres checkpointer, keyed by a thread id per browser. A maximum step count bounds each run.
 
 ## Consequences
 

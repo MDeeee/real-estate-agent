@@ -17,6 +17,7 @@ export function ChatPanel({
     restoring,
     resetting,
     notice,
+    inputRef,
     send,
     stop,
     retry,
@@ -65,7 +66,8 @@ export function ChatPanel({
       <Composer
         busy={busy}
         disabled={restoring}
-        onSend={(text) => void send(text)}
+        inputRef={inputRef}
+        onSend={(text) => void send(text, "composer")}
         onStop={stop}
       />
     </section>

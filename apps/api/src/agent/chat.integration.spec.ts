@@ -15,6 +15,7 @@ import {
   BookingsService,
 } from '../bookings/bookings.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { ProviderBusyError } from '../llm/provider-errors.js';
 import { createChatIntegrationApp } from '../testing/chat-integration-app.js';
 import { FakeAgentModel } from '../testing/fake-agent-model.js';
 import { FakeEmbeddings } from '../testing/fake-embeddings.js';
@@ -151,6 +152,7 @@ describe.skipIf(!databaseUrl)('chat API (integration)', () => {
     model.filterQueue = [];
     model.answerSuffix = '';
     model.classifyCalls.length = 0;
+    model.understandCalls.length = 0;
     Reflect.deleteProperty(model, 'classify');
     await resetDatabase(prisma);
     for (const [slug, { title, fields }] of Object.entries(LISTINGS)) {
@@ -545,6 +547,16 @@ describe.skipIf(!databaseUrl)('chat API (integration)', () => {
     expect(status).toBe(200);
     expect(events.map((e) => e.type)).toEqual(['status', 'error', 'done']);
     expect(eventOf(events, 'error').message).not.toContain('provider down');
+  });
+
+  it('reports a busy provider as a distinct error event the web can recognise', async () => {
+    model.classify = () => Promise.reject(new ProviderBusyError('busy'));
+    const { events } = await chat(randomUUID(), 'apartment');
+    expect(events.map((e) => e.type)).toEqual(['status', 'error', 'done']);
+    expect(eventOf(events, 'error')).toMatchObject({
+      code: 'provider_busy',
+      message: 'The AI provider is busy right now. Please try again in a minute.',
+    });
   });
 
   it('returns the message history of a thread, with cards and the search used', async () => {

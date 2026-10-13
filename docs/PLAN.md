@@ -36,8 +36,7 @@ State: `messages`, `intent`, `language`, `filters`, `semanticQuery`, `candidates
 
 | Node | Responsibility |
 | --- | --- |
-| `route` | Structured output (zod): intent in `search \| details \| book \| off_topic`, plus reply language (`ar \| en`) |
-| `extract_filters` | `withStructuredOutput(PropertyFiltersSchema)`; one retry on validation failure |
+| `understand` | One structured call (zod): intent, listing reference and, for a search, the mode and `PropertyFiltersSchema` filters (ADR 0006); one retry on validation failure. The reply language (`ar \| en`) is detected from the message |
 | `retrieve` | Runs the same SQL filter query as the regular search, then ranks matches by vector similarity of their best chunk to the semantic query (`ChunkRepository.rankProperties`, ADR 0004); top 5 |
 | `details` | Resolves "the second one" or a title against the last results and answers from that listing's full markdown |
 | `answer` | Grounded only in retrieved chunks; cites property ids; says "not found" instead of guessing; post-check that every cited id is in the retrieved ids |
@@ -72,7 +71,7 @@ Cross-cutting:
 
 - [x] `apps/api/src/llm`: `ChatModelFactory` (Claude or OpenAI-compatible, no sampling params for Claude), `AgentModel` port with a LangChain implementation, `LLM_STRUCTURED_METHOD`; the app boots without an LLM key and chat answers 503
 - [x] Filter-then-rank retrieval: `ChunkRepository.rankProperties`, `AgentRetrievalService`, ADR 0004
-- [x] `apps/api/src/agent`: LangGraph `StateGraph` (`route`, `extract_filters`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`), `PostgresSaver` in schema `langgraph`, 60 s turn timeout, recursion limit 12, citation post-check
+- [x] `apps/api/src/agent`: LangGraph `StateGraph` (`understand`, `retrieve`, `answer`, `details`, `book`, `smalltalk`, `refuse`), `PostgresSaver` in schema `langgraph`, 60 s turn timeout, recursion limit 12, citation post-check
 - [x] `BookingsService.create`: CONFIRMED immediately, idempotent per thread, property and date (unique index)
 - [x] `POST /api/chat` (SSE) and `GET /api/chat/:threadId`, stricter per-IP throttle (`CHAT_THROTTLE_LIMIT`), one structured log line per turn
 - [x] Web: `/api/chat` pass-through route, chat panel with streamed text, cards, filter chips and "Open these filters in the regular search", booking card, stop, retry, new chat, history restore; desktop two columns, mobile tabs

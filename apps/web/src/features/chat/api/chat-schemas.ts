@@ -71,9 +71,13 @@ export const chatEventSchema = z.discriminatedUnion("type", [
     type: z.literal("final"),
     text: z.string(),
     citedSlugs: z.array(z.string()),
-    intent: z.string().nullable(),
   }),
-  z.object({ type: z.literal("error"), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    /** Why the turn failed: "provider_busy" (AI provider overloaded or slow), "provider_unavailable" (its quota or key is the problem), "timeout", "error". Absent from older servers. */
+    code: z.string().optional(),
+  }),
   z.object({ type: z.literal("done") }),
 ]);
 

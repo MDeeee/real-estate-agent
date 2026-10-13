@@ -1,5 +1,10 @@
 import type { ChatCard } from "@/features/chat/api/chat-schemas";
 import { formatNumber, formatPrice } from "@/shared/lib/format";
+import {
+  formatDelivery,
+  formatFinishing,
+  formatPaymentPlan,
+} from "@/shared/lib/property-facts";
 
 export function CompactPropertyCard({
   property,
@@ -15,6 +20,11 @@ export function CompactPropertyCard({
   const location = [property.compound, property.district, property.city]
     .filter(Boolean)
     .join(" · ");
+  const facts = [
+    formatDelivery(property.deliveryDate),
+    formatFinishing(property.finishing),
+  ].filter((fact): fact is string => fact !== null);
+  const paymentPlan = formatPaymentPlan(property.paymentPlan);
 
   return (
     <article
@@ -55,6 +65,24 @@ export function CompactPropertyCard({
         {property.bedrooms} bed · {property.bathrooms} bath ·{" "}
         {formatNumber(property.areaM2)} m&sup2;
       </p>
+      {facts.length > 0 ? (
+        <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+          {facts.map((fact) => (
+            <li key={fact} dir="auto" className="min-w-0 break-words">
+              {fact}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {paymentPlan ? (
+        <p
+          dir="auto"
+          title={property.paymentPlan ?? undefined}
+          className="mt-1 line-clamp-2 break-words text-xs text-muted"
+        >
+          {paymentPlan}
+        </p>
+      ) : null}
     </article>
   );
 }

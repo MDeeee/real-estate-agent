@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { propertyFilterShape } from '../properties/property-filters.schema.js';
 import { INTENTS, SEARCH_MODES } from './agent-model.js';
 
-export const classificationSchema = z.object({
+/** The routing half of the understanding: intent, mode, preferences, listing reference. */
+const routingShape = {
   intent: z
     .enum(INTENTS)
     .describe(
@@ -24,7 +25,7 @@ export const classificationSchema = z.object({
     .describe(
       'For details/book only: the slug of the listing the visitor refers to when it is identifiable from the numbered candidates, otherwise their own words ("the second one", a title fragment). null when none is referred to.',
     ),
-});
+};
 
 export const bookingExtractionSchema = z.object({
   propertyRef: z
@@ -99,3 +100,15 @@ export function toLlmFilterSchema(shape: Shape = propertyFilterShape) {
 }
 
 export const llmFilterSchema = toLlmFilterSchema();
+
+/**
+ * What the single "understand" call returns: the routing decision plus, for a
+ * search, the filters. `filters` is always present (providers reject optional
+ * keys); every value is null for any other intent.
+ */
+export const understandingSchema = z.object({
+  ...routingShape,
+  filters: llmFilterSchema.describe(
+    'For search only: the complete search filters, every key present, null for anything not constrained. For any other intent set every key to null.',
+  ),
+});

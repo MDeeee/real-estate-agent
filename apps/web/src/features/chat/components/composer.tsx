@@ -1,4 +1,9 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+} from "react";
 import { Button } from "@/shared/ui/button";
 import { MAX_MESSAGE_LENGTH } from "@/features/chat/api/chat-schemas";
 
@@ -10,11 +15,14 @@ const HARD_INPUT_CAP = MAX_MESSAGE_LENGTH * 4;
 export function Composer({
   busy,
   disabled,
+  inputRef,
   onSend,
   onStop,
 }: {
   busy: boolean;
   disabled: boolean;
+  /** Lets the chat return focus here after a send (and a chip, Retry or Stop on a fine pointer). */
+  inputRef?: Ref<HTMLTextAreaElement>;
   onSend: (text: string) => void;
   onStop: () => void;
 }) {
@@ -51,6 +59,7 @@ export function Composer({
         Your message
       </label>
       <textarea
+        ref={inputRef}
         id="chat-input"
         dir="auto"
         rows={2}
