@@ -16,6 +16,10 @@ export interface Expectation {
    * of these counts (use several when the earlier ranking is not deterministic).
    */
   focusSlug?: readonly string[] | undefined;
+  /** Search turns: filter keys that must NOT be set (a type invented for a generic request). */
+  absentFilters?: readonly (keyof PropertyFilters)[] | undefined;
+  /** `details` turns: no listing may be resolved (a position beyond the listings shown). */
+  expectNoFocus?: boolean | undefined;
   /** The reply must be the standard refusal (and only then). Default false. */
   expectRefusal?: boolean | undefined;
   /**
@@ -134,13 +138,35 @@ export function scoreCase(
   const wantFocus = expected.focusSlug ?? [];
   const wantNoHits = expected.expectNoHits ?? false;
   const wantedFilters = expected.filters ?? {};
+  const wantAbsent = expected.absentFilters ?? [];
   const wantedCount = definedEntries(wantedFilters).length;
 
   let filters: FilterScore | null = null;
-  if (wantedCount > 0) {
-    filters = observed?.filters
-      ? scoreFilters(wantedFilters, observed.filters)
-      : { matched: 0, total: wantedCount, mismatches: [] };
+  if (wantedCount + wantAbsent.length > 0) {
+    if (observed?.filters) {
+      const base = scoreFilters(wantedFilters, observed.filters);
+      const present = wantAbsent.filter(
+        (key) => observed.filters?.[key] !== undefined,
+      );
+      filters = {
+        matched: base.matched + wantAbsent.length - present.length,
+        total: base.total + wantAbsent.length,
+        mismatches: [
+          ...base.mismatches,
+          ...present.map((key) => ({
+            field: key,
+            expected: undefined,
+            actual: observed.filters?.[key],
+          })),
+        ],
+      };
+    } else {
+      filters = {
+        matched: 0,
+        total: wantedCount + wantAbsent.length,
+        mismatches: [],
+      };
+    }
   }
 
   let grounded: boolean | null = null;
@@ -162,8 +188,9 @@ export function scoreCase(
         : top !== null &&
           !wantNone.some((slug) => top.includes(slug)) &&
           (!wantNoHits || top.length === 0),
-    reference:
-      wantFocus.length === 0
+    reference: expected.expectNoFocus
+      ? observed !== null && observed.focusSlug === null
+      : wantFocus.length === 0
         ? null
         : observed?.focusSlug != null && wantFocus.includes(observed.focusSlug),
     grounded,

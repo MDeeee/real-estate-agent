@@ -109,6 +109,6 @@ export const llmFilterSchema = toLlmFilterSchema();
 export const understandingSchema = z.object({
   ...routingShape,
   filters: llmFilterSchema.describe(
-    'For search only: the complete search filters, every key present, null for anything not constrained. For any other intent set every key to null.',
+    'For search: the complete search filters, every key present, null for anything not constrained. For book: only when the visitor describes the property to view and it is not among the numbered listings, the filters that describe it; otherwise every key null. For any other intent set every key to null. type is null unless the latest message names a kind of property.',
   ),
 });

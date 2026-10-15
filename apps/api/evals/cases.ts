@@ -16,6 +16,18 @@ const expectationSchema = z.strictObject({
     .union([slug, z.array(slug).min(1)])
     .transform((value) => (typeof value === 'string' ? [value] : value))
     .optional(),
+  absentFilters: z
+    .array(
+      z.enum(
+        Object.keys(propertyFilterShape) as [
+          keyof typeof propertyFilterShape,
+          ...(keyof typeof propertyFilterShape)[],
+        ],
+      ),
+    )
+    .min(1)
+    .optional(),
+  expectNoFocus: z.boolean().optional(),
   expectRefusal: z.boolean().optional(),
   expectNoHits: z.boolean().optional(),
   replyLanguage: z.enum(LANGUAGES).optional(),

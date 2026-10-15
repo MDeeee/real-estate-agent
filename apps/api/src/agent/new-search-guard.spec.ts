@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { dropCarriedOver, restatesFreshRequest } from './new-search-guard.js';
+import {
+  asksForAnyPropertyType,
+  dropCarriedOver,
+  dropUnsupportedType,
+  restatesFreshRequest,
+  restatesGenericRequest,
+} from './new-search-guard.js';
 
 const previousFilters = {
   city: 'Sheikh Zayed',
@@ -168,5 +174,126 @@ describe('restatesFreshRequest', () => {
   it('is false when the extraction lacks a type or a listing', () => {
     expect(check('apartment for sale', { listing: 'SALE' })).toBe(false);
     expect(check('apartment for sale', { type: 'apartment' })).toBe(false);
+  });
+});
+
+describe('asksForAnyPropertyType', () => {
+  it('is true for generic property words without a kind of property', () => {
+    for (const message of [
+      'Show me properties for sale in Sheikh Zayed',
+      'any listings in Maadi?',
+      'homes to rent in New Cairo',
+      'عايز عقارات للبيع في الشيخ زايد',
+      'فيه وحدات في المعادي؟',
+      'عايز العقار ده',
+    ]) {
+      expect(asksForAnyPropertyType(message), message).toBe(true);
+    }
+  });
+
+  it('is false when a kind of property is named, or no generic word is used', () => {
+    for (const message of [
+      'villas and properties for sale',
+      'عقارات: فيلا للبيع',
+      'only apartments please',
+      'cheaper please',
+      'in Zayed instead',
+      '3ayez sha2a fel zamalek',
+    ]) {
+      expect(asksForAnyPropertyType(message), message).toBe(false);
+    }
+  });
+});
+
+describe('dropUnsupportedType', () => {
+  const drop = (
+    type: string,
+    message: string,
+    searchMode: 'new' | 'refine',
+    previousType?: string,
+  ) =>
+    dropUnsupportedType({
+      previousFilters: previousType ? ({ type: previousType } as never) : {},
+      filters: { city: 'Sheikh Zayed', type } as never,
+      searchMode,
+      latestMessage: message,
+    });
+
+  it('drops a type the model invented for a message that names none', () => {
+    const result = drop(
+      'villa',
+      'Show me properties for sale in Sheikh Zayed',
+      'new',
+    );
+    expect(result.filters).toEqual({ city: 'Sheikh Zayed' });
+    expect(result.dropped).toBe(true);
+    expect(
+      drop('apartment', 'Looking for something in Zayed', 'new').filters,
+    ).toEqual({
+      city: 'Sheikh Zayed',
+    });
+  });
+
+  it('keeps a type the message names, in English, Arabic and Arabizi', () => {
+    expect(drop('villa', 'only villas please', 'refine').dropped).toBe(false);
+    expect(drop('villa', 'عايز فيلا في زايد', 'new').dropped).toBe(false);
+    expect(drop('apartment', '3ayez sha2a fe zayed', 'new').dropped).toBe(
+      false,
+    );
+  });
+
+  it('keeps the previous type on a refinement, unless the message is generic', () => {
+    expect(drop('villa', 'cheaper please', 'refine', 'villa').dropped).toBe(
+      false,
+    );
+    expect(
+      drop('villa', 'Show me properties in Zayed', 'refine', 'villa').dropped,
+    ).toBe(true);
+    expect(drop('villa', 'cheaper please', 'new', 'villa').dropped).toBe(true);
+    expect(drop('apartment', 'cheaper please', 'refine', 'villa').dropped).toBe(
+      true,
+    );
+  });
+});
+
+describe('restatesGenericRequest', () => {
+  const villaSearch = {
+    city: 'Maadi',
+    type: 'villa',
+    listing: 'RENT',
+  } as never;
+  const check = (message: string, filters: Record<string, unknown>) =>
+    restatesGenericRequest({
+      previousFilters: villaSearch,
+      filters: filters as never,
+      latestMessage: message,
+    });
+
+  it('is true for a generic request that restates the deal or a place after a typed search', () => {
+    expect(
+      check('Show me properties for sale in Sheikh Zayed', {
+        city: 'Sheikh Zayed',
+        listing: 'SALE',
+        type: 'villa',
+      }),
+    ).toBe(true);
+    expect(check('عقارات في الشيخ زايد', { city: 'Sheikh Zayed' })).toBe(true);
+  });
+
+  it('is false when a type is named, the earlier search had no type, or nothing is restated', () => {
+    expect(
+      check('villas for sale in Zayed', {
+        city: 'Sheikh Zayed',
+        listing: 'SALE',
+      }),
+    ).toBe(false);
+    expect(check('properties with a garden', { type: 'villa' })).toBe(false);
+    expect(
+      restatesGenericRequest({
+        previousFilters: { city: 'Maadi' } as never,
+        filters: { city: 'Sheikh Zayed', listing: 'SALE' } as never,
+        latestMessage: 'properties for sale in Zayed',
+      }),
+    ).toBe(false);
   });
 });

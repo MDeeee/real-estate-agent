@@ -136,14 +136,35 @@ function numbersIn(rawMessage: string): number[] {
 }
 
 const TYPE_WORDS: Record<string, RegExp> = {
-  apartment: /apartment|appartment|\bapt\b|\bflat|شقه|شقق/u,
-  villa: /villa|فيلا|فيلات/u,
+  apartment:
+    /apartment|appartment|\bapt\b|\bflat|\bsha[2q]{1,2}a|shaqqa|شقه|شقق|شقت/u,
+  villa: /villa|\bvila|فيلا|فيلات|فيلل|فيله/u,
   townhouse: /town ?house|تاون ?هاوس/u,
-  duplex: /duplex|دوبلكس/u,
-  chalet: /chalet|شاليه/u,
+  duplex: /duplex|dubl[ei]x|دوبلكس/u,
+  chalet: /chalet|\bshal[ei]+[ht]|شاليه/u,
   studio: /studio|استوديو|ستوديو/u,
-  office: /office|مكتب|مكاتب/u,
+  office: /office|\bma[kc]tab|مكتب|مكاتب/u,
 };
+
+/**
+ * Words that name properties in general ("properties", "listings", "عقارات",
+ * "وحدات"), not a kind of property.
+ */
+const GENERIC_PROPERTY_WORDS =
+  /(?<![\p{L}\p{N}])(?:(?:propert(?:y|ies)|listings?|homes?|houses?|units?|real estate)|(?:ال)?(?:عقارات|عقار|وحدات|وحده))(?![\p{L}\p{N}])/u;
+
+function namesAnyType(message: string): boolean {
+  return Object.values(TYPE_WORDS).some((pattern) => pattern.test(message));
+}
+
+/**
+ * The message speaks of properties in general ("properties for sale in Sheikh
+ * Zayed") and names no kind of property: it asks for no type at all.
+ */
+export function asksForAnyPropertyType(latestMessage: string): boolean {
+  const message = normalise(latestMessage);
+  return GENERIC_PROPERTY_WORDS.test(message) && !namesAnyType(message);
+}
 
 const LISTING_WORDS: Record<string, RegExp> = {
   RENT: /\b(?:rent|rental|renting|lease|leasing)\b|ايجار|اجار/u,
@@ -216,6 +237,59 @@ export function restatesFreshRequest(input: {
     const place = previousFilters[key];
     return typeof place === 'string' && locationEvidence(place, message);
   });
+}
+
+/**
+ * A generic request ("properties for sale in Sheikh Zayed") after a search that
+ * had a type: a new search when it also restates the deal or a place. A bare
+ * "show me properties with a garden" stays a refinement (its type is still
+ * cleared by `dropUnsupportedType`).
+ */
+export function restatesGenericRequest(input: {
+  previousFilters: PropertyFilters;
+  filters: PropertyFilters;
+  latestMessage: string;
+}): boolean {
+  const { previousFilters, filters } = input;
+  if (previousFilters.type === undefined) return false;
+  if (!asksForAnyPropertyType(input.latestMessage)) return false;
+  const message = normalise(input.latestMessage);
+  const restatesDeal =
+    filters.listing !== undefined &&
+    LISTING_WORDS[filters.listing.toUpperCase()]?.test(message) === true;
+  const restatesPlace = LOCATION_KEYS.some((key) => {
+    const place = filters[key];
+    return typeof place === 'string' && locationEvidence(place, message);
+  });
+  return restatesDeal || restatesPlace;
+}
+
+/**
+ * A property type is kept only when the visitor's latest message gives
+ * evidence for it ("villa", "فيلا"), or when a refinement keeps the previous
+ * search's type and the message is not a generic request. This removes a type
+ * the model invented for "properties in Sheikh Zayed" or kept after "show me
+ * properties in ...". Works for new searches and refinements alike.
+ */
+export function dropUnsupportedType(input: {
+  previousFilters: PropertyFilters;
+  filters: PropertyFilters;
+  searchMode: 'new' | 'refine';
+  latestMessage: string;
+}): { filters: PropertyFilters; dropped: boolean } {
+  const { filters } = input;
+  if (filters.type === undefined) return { filters, dropped: false };
+  const message = normalise(input.latestMessage);
+  if (TYPE_WORDS[filters.type]?.test(message) === true) {
+    return { filters, dropped: false };
+  }
+  const keepsPrevious =
+    input.searchMode === 'refine' &&
+    sameValue(input.previousFilters.type, filters.type) &&
+    !asksForAnyPropertyType(input.latestMessage);
+  if (keepsPrevious) return { filters, dropped: false };
+  const { type: _dropped, ...rest } = filters;
+  return { filters: rest, dropped: true };
 }
 
 export interface CarryOverResult {

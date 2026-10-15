@@ -22,6 +22,15 @@ export interface SearchSummary {
   semanticQuery: string;
 }
 
+/**
+ * A property the visitor describes in a booking request while no listing is
+ * on screen to resolve it against ("the Nile-view apartment in Zamalek").
+ */
+export interface ListingLookup {
+  filters: PropertyFilters;
+  semanticQuery: string;
+}
+
 /** What nodes attach to the assistant messages they write; read back for history. */
 export interface AssistantExtras {
   properties?: ChatCard[];
@@ -49,6 +58,7 @@ export function initialValues() {
     bookingDraft: {} as BookingDraft,
     citedSlugs: [] as string[],
     focusSlug: null as string | null,
+    lookup: null as ListingLookup | null,
   };
 }
 
@@ -66,6 +76,7 @@ export const AgentState = Annotation.Root({
   bookingDraft: lastValue<BookingDraft>(() => initialValues().bookingDraft),
   citedSlugs: lastValue<string[]>(() => initialValues().citedSlugs),
   focusSlug: lastValue<string | null>(() => initialValues().focusSlug),
+  lookup: lastValue<ListingLookup | null>(() => initialValues().lookup),
 });
 
 export type AgentStateType = typeof AgentState.State;

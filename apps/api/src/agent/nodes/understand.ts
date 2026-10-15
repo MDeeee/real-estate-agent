@@ -19,6 +19,7 @@ import type {
   AgentStateType,
   AgentStateUpdate,
   AssistantExtras,
+  ListingLookup,
 } from '../agent-state.js';
 import { businessToday } from '../booking-validation.js';
 import { detectLanguage } from '../language.js';
@@ -27,7 +28,12 @@ import {
   resolveCandidate,
   resolveOrdinalFromMessage,
 } from '../listing-reference.js';
-import { dropCarriedOver, restatesFreshRequest } from '../new-search-guard.js';
+import {
+  dropCarriedOver,
+  dropUnsupportedType,
+  restatesFreshRequest,
+  restatesGenericRequest,
+} from '../new-search-guard.js';
 import { callOptions, emit, isAborted, recentTurns } from './node-support.js';
 
 /** One structured call, plus one retry when its output is invalid. */
@@ -147,6 +153,38 @@ export function resolvePropertyRef(
   return reference ?? null;
 }
 
+/**
+ * A book turn: the property the visitor describes (location, type, deal,
+ * wishes) for when no listing on screen is the one meant. Null when the model
+ * described nothing usable. The type needs evidence in the message like a new
+ * search does.
+ */
+function describedListing(
+  result: Attempt,
+  latestText: string,
+): ListingLookup | null {
+  const parsed = propertyFiltersSchema.safeParse(
+    normaliseLlmFilters(result.understanding.filters),
+  );
+  if (!parsed.success) return null;
+  const { filters } = dropUnsupportedType({
+    previousFilters: {},
+    filters: parsed.data,
+    searchMode: 'new',
+    latestMessage: latestText,
+  });
+  // A model that only put the description in propertyRef still gives a lookup.
+  const reference = result.understanding.propertyRef?.trim() ?? '';
+  const semanticQuery =
+    result.understanding.semanticQuery.trim() ||
+    (Object.keys(filters).length === 0 && !SLUG_LIKE.test(reference)
+      ? reference
+      : '');
+  return Object.keys(filters).length === 0 && semanticQuery === ''
+    ? null
+    : { filters, semanticQuery };
+}
+
 interface Attempt {
   understanding: Understanding;
   /** Validated filters; set for a search whose filters passed the contract. */
@@ -235,13 +273,19 @@ export function createUnderstandNode(deps: AgentGraphDeps) {
       result.understanding.intent === 'search' &&
       result.understanding.searchMode === 'refine' &&
       result.filters &&
-      restatesFreshRequest({
+      (restatesFreshRequest({
         previousFilters: state.filters,
         filters: result.filters,
         latestMessage: latestText,
-      })
+      }) ||
+        restatesGenericRequest({
+          previousFilters: state.filters,
+          filters: result.filters,
+          latestMessage: latestText,
+        }))
     ) {
-      // A complete request that restates sale/rent and names a type is a new
+      // A complete request that restates sale/rent (and names a type, or asks
+      // for properties in general after a typed search) is a new
       // search even when the model called it a refinement; the carry-over
       // guard below drops what it copied from the old search.
       result = {
@@ -286,7 +330,11 @@ export function createUnderstandNode(deps: AgentGraphDeps) {
       language,
       propertyRef: resolvePropertyRef(state, understanding, latestText),
       citedSlugs: [],
+      lookup: null,
     };
+    if (understanding.intent === 'book') {
+      return { ...common, lookup: describedListing(result, latestText) };
+    }
     if (understanding.intent !== 'search') return common;
 
     let filters = result.filters;
@@ -312,6 +360,21 @@ export function createUnderstandNode(deps: AgentGraphDeps) {
       }
       filters = guarded.filters;
       semanticQuery = guarded.semanticQuery;
+    }
+    if (result.filters) {
+      // A type the message gives no evidence for was invented or carried over.
+      const typed = dropUnsupportedType({
+        previousFilters: state.filters,
+        filters,
+        searchMode: understanding.searchMode,
+        latestMessage: latestText,
+      });
+      if (typed.dropped) {
+        logger.warn(
+          `The type ${filters.type ?? ''} has no evidence in the message; dropped.`,
+        );
+      }
+      filters = typed.filters;
     }
     emit(config, { type: 'status', stage: 'searching' });
     emit(config, {

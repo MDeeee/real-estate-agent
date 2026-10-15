@@ -14,6 +14,7 @@ import {
   normalisePhone,
 } from '../booking-validation.js';
 import { SLUG_LIKE, resolveCandidate } from '../listing-reference.js';
+import { chooseDescribedListing } from './described-listing.js';
 import type { BookingField, BookingProblem } from '../replies.js';
 import {
   assistantMessage,
@@ -44,7 +45,7 @@ function threadIdOf(config: LangGraphRunnableConfig): string {
 }
 
 export function createBookNode(deps: AgentGraphDeps) {
-  const { model, listings, bookings, now, timeZone, replies } = deps;
+  const { model, listings, bookings, retrieval, now, timeZone, replies } = deps;
 
   return async (
     state: AgentStateType,
@@ -99,6 +100,24 @@ export function createBookNode(deps: AgentGraphDeps) {
       draft.propertySlug ??=
         state.focusSlug ??
         (state.candidates.length === 1 ? state.candidates[0]?.slug : undefined);
+    }
+
+    // Nothing on screen to resolve against: find the property the visitor
+    // describes. A clear match is taken, otherwise the best few are offered.
+    let described:
+      Awaited<ReturnType<typeof chooseDescribedListing>> | undefined;
+    if (
+      !draft.propertySlug &&
+      state.candidates.length === 0 &&
+      state.lookup !== null
+    ) {
+      const latestText = turns[latestIndex]?.text ?? '';
+      described = await chooseDescribedListing(
+        retrieval,
+        state.lookup,
+        latestText,
+      );
+      if (described.chosen) draft.propertySlug = described.chosen.card.slug;
     }
 
     let title: string | undefined;
@@ -181,6 +200,13 @@ export function createBookNode(deps: AgentGraphDeps) {
       missing.push('preferredTime');
     }
 
+    const offered = !draft.propertySlug ? (described?.options ?? []) : [];
+    if (offered.length > 0) {
+      emit(config, {
+        type: 'properties',
+        items: offered.map(({ card }) => card),
+      });
+    }
     if (
       missing.length > 0 ||
       !draft.propertySlug ||
@@ -196,12 +222,29 @@ export function createBookNode(deps: AgentGraphDeps) {
               title,
               missing,
               problems,
-              state.candidates.map((candidate) => candidate.title),
+              offered.length > 0
+                ? offered.map(({ card }) => card.title)
+                : state.candidates.map((candidate) => candidate.title),
+              offered.length > 0,
             ),
+            offered.length > 0
+              ? { properties: offered.map(({ card }) => card) }
+              : undefined,
           ),
         ],
         bookingDraft: draft,
         citedSlugs: [],
+        ...(offered.length > 0
+          ? {
+              // Now on screen: "the second one" resolves against them next turn.
+              candidates: offered.map(({ card, snippet }) => ({
+                slug: card.slug,
+                title: card.title,
+                card,
+                snippet,
+              })),
+            }
+          : {}),
       };
     }
 

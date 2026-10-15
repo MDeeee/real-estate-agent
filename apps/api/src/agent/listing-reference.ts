@@ -350,3 +350,31 @@ export function resolveOrdinalFromMessage<T extends CandidateRef>(
   const index = ordinalIndexFromMessage(text, shown.length);
   return index === undefined ? undefined : shown[index];
 }
+
+/**
+ * How many distinctive words (three letters or more, no filler) of a listing's
+ * title the visitor's text also uses: the evidence that a described property is
+ * this listing.
+ */
+export function titleWordOverlap(text: string, title: string): number {
+  const wanted = new Set(words(text));
+  return [...new Set(words(title))].filter((word) => wanted.has(word)).length;
+}
+
+/**
+ * The text names one listing by a position that is beyond the `count` listings
+ * shown ("the second one" after a search that found one listing).
+ */
+export function ordinalBeyondCount(
+  text: string,
+  count: number,
+  { bareNumber = false }: { bareNumber?: boolean } = {},
+): boolean {
+  const mentions = mentionsOf(normalise(text), bareNumber);
+  const resolved = (position: Position) =>
+    position === 'last' ? count - 1 : position - 1;
+  const distinct = new Set(mentions.map(({ position }) => resolved(position)));
+  if (distinct.size !== 1 || !mentions.some(({ names }) => names)) return false;
+  const [index] = [...distinct];
+  return index !== undefined && index >= count;
+}

@@ -3,6 +3,8 @@ import {
   ordinalIndexFromMessage,
   resolveCandidate,
   resolveOrdinalFromMessage,
+  ordinalBeyondCount,
+  titleWordOverlap,
 } from './listing-reference.js';
 
 const candidates = [
@@ -169,12 +171,46 @@ describe('resolveOrdinalFromMessage', () => {
     expect(
       resolveOrdinalFromMessage('and the third one?', candidates)?.slug,
     ).toBe('october-office-rent');
-    expect(
-      resolveOrdinalFromMessage('التاني', candidates)?.slug,
-    ).toBe('zamalek-apartment-rent');
+    expect(resolveOrdinalFromMessage('التاني', candidates)?.slug).toBe(
+      'zamalek-apartment-rent',
+    );
   });
 
   it('returns nothing when the list is empty', () => {
     expect(resolveOrdinalFromMessage('the first one', [])).toBeUndefined();
+  });
+});
+
+describe('ordinalBeyondCount', () => {
+  it('is true when the named position is beyond the listings shown', () => {
+    expect(ordinalBeyondCount('Tell me more about the second one', 1)).toBe(
+      true,
+    );
+    expect(ordinalBeyondCount('التانية', 1)).toBe(true);
+    expect(ordinalBeyondCount('the third listing', 2)).toBe(true);
+  });
+
+  it('is false inside the range, for the last one, dates and no position', () => {
+    expect(ordinalBeyondCount('the second one', 2)).toBe(false);
+    expect(ordinalBeyondCount('the last one', 1)).toBe(false);
+    expect(ordinalBeyondCount('the 2nd of November', 1)).toBe(false);
+    expect(ordinalBeyondCount('tell me more', 1)).toBe(false);
+  });
+});
+
+describe('titleWordOverlap', () => {
+  it('counts the distinctive title words the text uses', () => {
+    expect(
+      titleWordOverlap(
+        'the Nile-view apartment in Zamalek',
+        'Nile-view apartment in a classic Zamalek building',
+      ),
+    ).toBe(4);
+    expect(
+      titleWordOverlap(
+        'the Nile-view apartment in Zamalek',
+        'Furnished two-bedroom apartment for rent in Zamalek',
+      ),
+    ).toBe(2);
   });
 });

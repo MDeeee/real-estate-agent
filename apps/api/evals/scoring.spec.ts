@@ -286,6 +286,43 @@ describe('scoreCase', () => {
   });
 });
 
+describe('absentFilters and expectNoFocus', () => {
+  it('fails the filter score when a key that must be absent is set', () => {
+    const expected: Expectation = {
+      intent: 'search',
+      filters: { listing: 'SALE' },
+      absentFilters: ['type'],
+    };
+    const ok = scoreCase(
+      expected,
+      observation({ filters: { listing: 'SALE' } }),
+    );
+    expect(ok.filters).toMatchObject({ matched: 2, total: 2 });
+    const bad = scoreCase(
+      expected,
+      observation({ filters: { listing: 'SALE', type: 'villa' } }),
+    );
+    expect(bad.filters).toMatchObject({ matched: 1, total: 2 });
+    expect(bad.filters?.mismatches).toEqual([
+      { field: 'type', expected: undefined, actual: 'villa' },
+    ]);
+  });
+
+  it('scores a details turn that must resolve no listing', () => {
+    const expected: Expectation = { intent: 'details', expectNoFocus: true };
+    expect(
+      scoreCase(expected, observation({ intent: 'details', focusSlug: null }))
+        .reference,
+    ).toBe(true);
+    expect(
+      scoreCase(
+        expected,
+        observation({ intent: 'details', focusSlug: 'a-one' }),
+      ).reference,
+    ).toBe(false);
+  });
+});
+
 describe('aggregate', () => {
   function outcome(
     expectation: Expectation,

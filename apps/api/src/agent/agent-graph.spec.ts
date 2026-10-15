@@ -1319,7 +1319,198 @@ describe('agent graph', () => {
       const { h, thread } = await searched();
       modelLeavesRefEmpty(h, 'details');
       const { text } = await h.turn(thread, 'details of the fifth one');
-      expect(text).toContain('Which listing');
+      expect(text).toContain('only 3 listings');
+    });
+  });
+  describe('type evidence, generic requests and unresolved references', () => {
+    const nullKeys = {
+      city: null,
+      compound: null,
+      district: null,
+      type: null,
+      listing: null,
+      priceMin: null,
+      priceMax: null,
+      bedroomsMin: null,
+      bathroomsMin: null,
+      areaMin: null,
+      areaMax: null,
+    };
+    const refine = () =>
+      Promise.resolve({
+        intent: 'search' as const,
+        searchMode: 'refine' as const,
+        semanticQuery: '',
+        propertyRef: undefined,
+      });
+    const zayedVilla = {
+      ...nullKeys,
+      city: 'Sheikh Zayed',
+      type: 'villa',
+      listing: 'SALE',
+    };
+
+    it('drops a type the model invented for a generic first message', async () => {
+      const h = createGraphHarness();
+      h.model.filterQueue = [zayedVilla];
+      const { state, events } = await h.turn(
+        randomUUID(),
+        'Show me properties for sale in Sheikh Zayed',
+      );
+      expect(state.filters).toEqual({ city: 'Sheikh Zayed', listing: 'SALE' });
+      expect(events.find((e) => e.type === 'filters')).toMatchObject({
+        filters: { city: 'Sheikh Zayed', listing: 'SALE' },
+      });
+    });
+
+    it('keeps a type the message names', async () => {
+      const h = createGraphHarness();
+      h.model.filterQueue = [zayedVilla];
+      const { state } = await h.turn(randomUUID(), 'a villa for sale in Zayed');
+      expect(state.filters.type).toBe('villa');
+    });
+
+    it('clears the earlier type for a generic request that restates the deal and city, even labelled a refinement', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      h.model.filterQueue = [zayedVilla];
+      await h.turn(thread, 'a villa for sale in Sheikh Zayed');
+      h.model.classify = refine;
+      h.model.filterQueue = [zayedVilla];
+      const { state } = await h.turn(
+        thread,
+        'Show me properties for sale in Sheikh Zayed',
+      );
+      expect(state.searchMode).toBe('new');
+      expect(state.filters).toEqual({ city: 'Sheikh Zayed', listing: 'SALE' });
+    });
+
+    it('still sets a type when the visitor narrows to it after a generic search', async () => {
+      const h = createGraphHarness();
+      const thread = randomUUID();
+      await h.turn(thread, 'Show me properties for sale in Sheikh Zayed');
+      h.model.classify = refine;
+      h.model.filterQueue = [zayedVilla];
+      const { state } = await h.turn(thread, 'only villas please');
+      expect(state.searchMode).toBe('refine');
+      expect(state.filters).toEqual({
+        city: 'Sheikh Zayed',
+        type: 'villa',
+        listing: 'SALE',
+      });
+    });
+
+    it('says what the last search found when the visitor numbers a listing beyond it', async () => {
+      const h = createGraphHarness([makeCard('only-one')]);
+      const thread = randomUUID();
+      await h.turn(thread, 'apartments in New Cairo');
+      const { text, state } = await h.turn(
+        thread,
+        'Tell me more about the second one',
+      );
+      expect(state.intent).toBe('details');
+      expect(text).toBe(
+        'Your last search found only 1 listing: "Title of only-one". Did you mean that one?',
+      );
+    });
+
+    it('keeps the "search first" reply when there was no search', async () => {
+      const h = createGraphHarness();
+      const { text } = await h.turn(
+        randomUUID(),
+        'Tell me more about the second one',
+      );
+      expect(text).toContain('Search first');
+    });
+
+    describe('booking a described property with no search before', () => {
+      const sale = makeCard('zamalek-apartment-sale', {
+        title: 'Nile-view apartment in a classic Zamalek building',
+        city: 'Zamalek',
+      });
+      const rent = makeCard('zamalek-apartment-rent', {
+        title: 'Furnished two-bedroom apartment for rent in Zamalek',
+        city: 'Zamalek',
+        listing: 'RENT',
+      });
+
+      function describing(h: ReturnType<typeof createGraphHarness>) {
+        const understand = h.model.understand.bind(h.model);
+        h.model.understand = async (input) => {
+          const result = await understand(input);
+          return result.intent === 'book'
+            ? {
+                ...result,
+                filters: {
+                  ...result.filters,
+                  city: 'Zamalek',
+                  type: 'apartment',
+                },
+                semanticQuery: 'Nile view',
+              }
+            : result;
+        };
+      }
+
+      it('resolves a clear title match and books it', async () => {
+        const h = createGraphHarness([sale, rent]);
+        describing(h);
+        const { state } = await h.turn(
+          randomUUID(),
+          'I would like to book a viewing of the Nile-view apartment in Zamalek on 2026-10-20 at 17:00. My name is Ahmed Test and my phone is 01012345678.',
+        );
+        expect(h.createBooking).toHaveBeenCalledWith(
+          expect.objectContaining({ propertySlug: 'zamalek-apartment-sale' }),
+        );
+        expect(state.bookingDraft).toEqual({});
+      });
+
+      it('falls back to the words in propertyRef when the model gave no filters', async () => {
+        const h = createGraphHarness([sale, rent]);
+        const classify = h.model.classify.bind(h.model);
+        h.model.classify = async (input) => ({
+          ...(await classify(input)),
+          propertyRef: 'the Nile-view apartment in Zamalek',
+        });
+        const { state } = await h.turn(
+          randomUUID(),
+          'I would like to book a viewing of the Nile-view apartment in Zamalek',
+        );
+        expect(state.bookingDraft.propertySlug).toBe('zamalek-apartment-sale');
+      });
+
+      it('offers the matching titles instead of guessing when the description fits several', async () => {
+        const h = createGraphHarness([sale, rent]);
+        describing(h);
+        const thread = randomUUID();
+        const { text, state } = await h.turn(
+          thread,
+          'I would like to book a viewing of an apartment in Zamalek',
+        );
+        expect(h.createBooking).not.toHaveBeenCalled();
+        expect(state.bookingDraft.propertySlug).toBeUndefined();
+        expect(text).toContain('Listings that could match');
+        expect(text).toContain('1. "Nile-view apartment');
+        expect(text).toContain('2. "Furnished two-bedroom');
+        // The choices are on screen now: "the second one" resolves against them.
+        const next = await h.turn(
+          thread,
+          'the second one, my name is Ahmed Test',
+        );
+        expect(next.state.bookingDraft.propertySlug).toBe(
+          'zamalek-apartment-rent',
+        );
+      });
+
+      it('still asks which listing when the model described nothing', async () => {
+        const h = createGraphHarness([sale, rent]);
+        const { text } = await h.turn(
+          randomUUID(),
+          'I would like to book a viewing',
+        );
+        expect(text).toContain('which listing you would like to view');
+        expect(h.createBooking).not.toHaveBeenCalled();
+      });
     });
   });
 });

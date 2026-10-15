@@ -12,6 +12,14 @@ export type I18nTranslations = {
         "providerUnavailable": string;
         "emptyAnswer": string;
         "unknownListing": string;
+        "ordinalBeyond": {
+            "zero": string;
+            "one": string;
+            "two": string;
+            "few": string;
+            "many": string;
+            "other": string;
+        };
         "listingUnavailable": string;
         "bookingCancelled": string;
         "days": {
@@ -45,6 +53,7 @@ export type I18nTranslations = {
             "needed": string;
             "neededFor": string;
             "choices": string;
+            "choicesMatching": string;
             "choiceSeparator": string;
             "whenAt": string;
             "whenAnyTime": string;

@@ -5,6 +5,10 @@
   "providerUnavailable": "The AI assistant is not available right now.",
   "emptyAnswer": "Sorry, I could not put an answer together. Please try rephrasing your request.",
   "unknownListing": "Which listing do you mean? Search first, then refer to a result by its position (\"the second one\") or its title.",
+  "ordinalBeyond": {
+    "one": "Your last search found only {count} listing: {list}. Did you mean that one?",
+    "other": "Your last search found only {count} listings: {list}. Which of these did you mean?"
+  },
   "listingUnavailable": "That listing is no longer available. Would you like me to search again?",
   "bookingCancelled": "That slot was cancelled by our team — please choose another date.",
   "days": {
@@ -34,6 +38,7 @@
     "needed": "To book a viewing I still need {needed}.",
     "neededFor": "To book a viewing of \"{title}\", I still need {needed}.",
     "choices": "Listings from your latest search: {list}.",
+    "choicesMatching": "Listings that could match: {list}.",
     "choiceSeparator": "; ",
     "whenAt": "{date} at {time}",
     "whenAnyTime": "{date} (any time)",

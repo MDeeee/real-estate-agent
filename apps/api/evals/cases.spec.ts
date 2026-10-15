@@ -23,7 +23,7 @@ async function sampleSlugs(): Promise<Set<string>> {
 describe('cases.json', () => {
   it('is valid and has the planned mix', async () => {
     const cases = await loadCases(resolve(import.meta.dirname, 'cases.json'));
-    expect(cases).toHaveLength(22);
+    expect(cases).toHaveLength(26);
 
     const multiTurn = cases.filter(({ turns }) => turns.length > 1);
     const singleTurn = cases.filter(({ turns }) => turns.length === 1);
@@ -31,13 +31,13 @@ describe('cases.json', () => {
       turns.some((turn) => ARABIC.test(turn)),
     );
     // Single-turn English cases include the Arabizi and the no-results one.
-    expect(multiTurn).toHaveLength(8);
+    expect(multiTurn).toHaveLength(10);
     expect(arabic).toHaveLength(6);
-    expect(singleTurn.length - arabic.length).toBe(8);
+    expect(singleTurn.length - arabic.length).toBe(10);
 
     expect(cases.filter(({ expect: e }) => e.expectRefusal)).toHaveLength(2);
     expect(cases.filter(({ expect: e }) => e.intent === 'book')).toHaveLength(
-      2,
+      3,
     );
     expect(cases.filter(({ expect: e }) => e.expectNoHits)).toHaveLength(1);
     expect(

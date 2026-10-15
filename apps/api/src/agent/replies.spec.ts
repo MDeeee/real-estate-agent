@@ -31,7 +31,11 @@ describe('catalogs', () => {
     const catalogs = readCatalogs();
     const withoutPlurals = (language: string) =>
       keysOf(catalogs[language])
-        .filter((key) => !key.startsWith('agent.days.'))
+        .filter(
+          (key) =>
+            !key.startsWith('agent.days.') &&
+            !key.startsWith('agent.ordinalBeyond.'),
+        )
         .sort();
     expect(withoutPlurals('ar')).toEqual(withoutPlurals('en'));
   });
@@ -149,5 +153,24 @@ describe('bookingConfirmation', () => {
     );
     expect(text).toContain('This viewing was already booked and is confirmed');
     expect(text).toContain('19 October 2026 (any time)');
+  });
+});
+
+describe('ordinalBeyondResults', () => {
+  it('says how many listings the last search found, plural-aware, in both languages', () => {
+    expect(replies.ordinalBeyondResults('en', ['Alpha'])).toBe(
+      'Your last search found only 1 listing: "Alpha". Did you mean that one?',
+    );
+    expect(replies.ordinalBeyondResults('en', ['Alpha', 'Beta'])).toBe(
+      'Your last search found only 2 listings: "Alpha"; "Beta". Which of these did you mean?',
+    );
+    expect(replies.ordinalBeyondResults('ar', ['ألفا'])).toContain('"ألفا"');
+    expect(replies.ordinalBeyondResults('ar', ['ألفا'])).toContain('وحدة واحدة');
+  });
+
+  it('never runs the template engine over a title', () => {
+    expect(replies.ordinalBeyondResults('en', ['$t(agent.smalltalk)'])).toContain(
+      '"$t(agent.smalltalk)"',
+    );
   });
 });

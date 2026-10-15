@@ -327,5 +327,61 @@
       "intent": "smalltalk",
       "replyLanguage": "ar"
     }
+  },
+  {
+    "id": "generic-first-message-no-type",
+    "description": "Fresh chat: a generic request names no type, so no type filter may be invented",
+    "turns": ["Show me properties for sale in Sheikh Zayed"],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "city": "Sheikh Zayed",
+        "listing": "SALE"
+      },
+      "absentFilters": ["type"],
+      "anyOfSlugs": ["sheikh-zayed-duplex-sale", "sheikh-zayed-townhouse-sale"],
+      "noneOfSlugs": ["sheikh-zayed-apartment-rent"]
+    }
+  },
+  {
+    "id": "multi-generic-after-typed-clears-type",
+    "description": "Multi-turn: a generic request after a villa search must clear the villa type and the old city",
+    "turns": [
+      "I want a villa for sale in New Cairo.",
+      "Show me properties for sale in Sheikh Zayed"
+    ],
+    "expect": {
+      "intent": "search",
+      "filters": {
+        "city": "Sheikh Zayed",
+        "listing": "SALE"
+      },
+      "absentFilters": ["type"],
+      "anyOfSlugs": ["sheikh-zayed-duplex-sale", "sheikh-zayed-townhouse-sale"],
+      "noneOfSlugs": ["new-cairo-villa-sale"]
+    }
+  },
+  {
+    "id": "multi-ordinal-beyond-results",
+    "description": "Multi-turn: a search with one result, then \"the second one\": a details turn that resolves no listing (the reply says what was found)",
+    "turns": [
+      "Looking for an apartment to rent in Sheikh Zayed.",
+      "Tell me more about the second one."
+    ],
+    "expect": {
+      "intent": "details",
+      "expectNoFocus": true
+    }
+  },
+  {
+    "id": "first-message-booking-by-name",
+    "description": "First message: booking a listing described by name; the property resolves from the description (no name or phone, so nothing is booked)",
+    "turns": [
+      "I would like to book a viewing of the Nile-view apartment in Zamalek."
+    ],
+    "expect": {
+      "intent": "book",
+      "focusSlug": "zamalek-apartment-sale"
+    }
   }
 ]

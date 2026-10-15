@@ -7,7 +7,11 @@ import type {
 } from '../agent-state.js';
 import { sanitiseCitations } from '../citations.js';
 import { detailsGroundingSlugs } from '../grounding.js';
-import { SLUG_LIKE, resolveCandidate } from '../listing-reference.js';
+import {
+  SLUG_LIKE,
+  ordinalBeyondCount,
+  resolveCandidate,
+} from '../listing-reference.js';
 import {
   assistantMessage,
   callOptions,
@@ -32,6 +36,32 @@ export function resolveListingSlug(
   return undefined;
 }
 
+/**
+ * No listing could be resolved. When the visitor numbered one beyond the
+ * listings the last search found ("the second one" after a single result), say
+ * what the search found; the generic "search first" only when there is none.
+ */
+function unresolvedReply(
+  state: AgentStateType,
+  replies: AgentGraphDeps['replies'],
+): string {
+  const count = state.candidates.length;
+  const latest = recentTurns(state.messages).findLast(
+    (turn) => turn.role === 'user',
+  )?.text;
+  const beyond =
+    count > 0 &&
+    ((latest !== undefined && ordinalBeyondCount(latest, count)) ||
+      (state.propertyRef !== null &&
+        ordinalBeyondCount(state.propertyRef, count, { bareNumber: true })));
+  return beyond
+    ? replies.ordinalBeyondResults(
+        state.language,
+        state.candidates.map(({ title }) => title),
+      )
+    : replies.unknownListing(state.language);
+}
+
 export function createDetailsNode({
   model,
   listings,
@@ -48,7 +78,7 @@ export function createDetailsNode({
     config: LangGraphRunnableConfig,
   ): Promise<AgentStateUpdate> => {
     const target = resolveListingSlug(state);
-    if (!target) return reply(replies.unknownListing(state.language));
+    if (!target) return reply(unresolvedReply(state, replies));
 
     const detail = await listings.detail(target.slug);
     if (!detail) {
