@@ -10,6 +10,7 @@ import type { ChatCard } from '../agent/chat-card.js';
 import type { NodeEvent } from '../agent/chat-events.js';
 import type { BookingSummary } from '../bookings/bookings.service.js';
 import { FakeAgentModel } from './fake-agent-model.js';
+import { createTestReplies } from './replies.js';
 
 export function makeCard(
   slug: string,
@@ -114,6 +115,7 @@ export function createGraphHarness(
     now: () => FIXED_NOW,
     timeZone: 'Africa/Cairo',
     logger: { warn: (message) => warnings.push(message) },
+    replies: createTestReplies(),
   };
   const checkpointer = new MemorySaver();
   const graph = buildAgentGraph(deps, checkpointer);

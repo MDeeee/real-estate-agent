@@ -6,7 +6,6 @@ import {
   searchGroundingSlugs,
 } from '../src/agent/grounding.js';
 import { messageText } from '../src/agent/nodes/node-support.js';
-import { refusalReply } from '../src/agent/replies.js';
 import type { Observation } from './scoring.js';
 
 /** What one graph turn left behind. */
@@ -44,6 +43,8 @@ export interface ConversationTotals {
 export function observeLastTurn(
   { state, rawAnswer, shownSlugs }: TurnOutcome,
   totals: ConversationTotals,
+  /** The static refusal replies (every language): a reply equal to one is a refusal. */
+  refusalReplies: readonly string[],
 ): Observation {
   const reply = messageText(
     state.messages.findLast((message) => message.getType() === 'ai') ??
@@ -72,7 +73,7 @@ export function observeLastTurn(
     groundingSlugs: [...grounding],
     citations: extractCitations(rawAnswer),
     hasAnswer: rawAnswer.trim().length > 0,
-    refused: reply === refusalReply('en') || reply === refusalReply('ar'),
+    refused: refusalReplies.includes(reply),
     reply,
     conversationLatencyMs: totals.latencyMs,
     conversationInputTokens: totals.inputTokens,

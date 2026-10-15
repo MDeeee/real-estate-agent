@@ -29,11 +29,7 @@ import {
 } from './nodes/node-support.js';
 import { detectLanguage } from './language.js';
 import { maskPhone, maskPhonesInText, threadLogId } from './pii.js';
-import {
-  bookingConfirmation,
-  providerBusyReply,
-  providerUnavailableReply,
-} from './replies.js';
+import { AgentReplies } from './replies.js';
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
@@ -123,6 +119,7 @@ export class ChatService {
   constructor(
     @Inject(AgentGraphService) private readonly agent: AgentGraphService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
+    @Inject(AgentReplies) private readonly replies: AgentReplies,
   ) {
     this.turnTimeoutMs = config.get('CHAT_TURN_TIMEOUT_MS', { infer: true });
   }
@@ -309,9 +306,9 @@ export class ChatService {
       type: 'error',
       message:
         code === 'provider_unavailable'
-          ? providerUnavailableReply(language)
+          ? this.replies.providerUnavailable(language)
           : code === 'provider_busy'
-            ? providerBusyReply(language)
+            ? this.replies.providerBusy(language)
             : code === 'timeout'
               ? TIMEOUT_ERROR
               : GENERIC_ERROR,
@@ -350,7 +347,7 @@ export class ChatService {
       );
       if (stored) return messageText(stored);
 
-      const text = bookingConfirmation(
+      const text = this.replies.bookingConfirmation(
         values.language ?? initialValues().language,
         booking,
         created ?? true,

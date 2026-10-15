@@ -9,11 +9,6 @@ import { sanitiseCitations } from '../citations.js';
 import { detailsGroundingSlugs } from '../grounding.js';
 import { SLUG_LIKE, resolveCandidate } from '../listing-reference.js';
 import {
-  emptyAnswerReply,
-  listingUnavailableReply,
-  unknownListingReply,
-} from '../replies.js';
-import {
   assistantMessage,
   callOptions,
   emit,
@@ -37,7 +32,12 @@ export function resolveListingSlug(
   return undefined;
 }
 
-export function createDetailsNode({ model, listings, logger }: AgentGraphDeps) {
+export function createDetailsNode({
+  model,
+  listings,
+  logger,
+  replies,
+}: AgentGraphDeps) {
   const reply = (text: string): AgentStateUpdate => ({
     messages: [assistantMessage(text)],
     citedSlugs: [],
@@ -48,14 +48,14 @@ export function createDetailsNode({ model, listings, logger }: AgentGraphDeps) {
     config: LangGraphRunnableConfig,
   ): Promise<AgentStateUpdate> => {
     const target = resolveListingSlug(state);
-    if (!target) return reply(unknownListingReply(state.language));
+    if (!target) return reply(replies.unknownListing(state.language));
 
     const detail = await listings.detail(target.slug);
     if (!detail) {
       return reply(
         target.shown
-          ? listingUnavailableReply(state.language)
-          : unknownListingReply(state.language),
+          ? replies.listingUnavailable(state.language)
+          : replies.unknownListing(state.language),
       );
     }
     emit(config, { type: 'properties', items: [detail.card] });
@@ -85,7 +85,7 @@ export function createDetailsNode({ model, listings, logger }: AgentGraphDeps) {
     }
     return {
       messages: [
-        assistantMessage(text || emptyAnswerReply(state.language), {
+        assistantMessage(text || replies.emptyAnswer(state.language), {
           properties: [detail.card],
         }),
       ],

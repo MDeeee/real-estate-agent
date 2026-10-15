@@ -3,7 +3,6 @@ import type { AgentGraphDeps } from '../agent-graph.types.js';
 import type { AgentStateType, AgentStateUpdate } from '../agent-state.js';
 import { sanitiseCitations } from '../citations.js';
 import { searchGroundingSlugs } from '../grounding.js';
-import { emptyAnswerReply } from '../replies.js';
 import {
   assistantMessage,
   callOptions,
@@ -23,7 +22,7 @@ async function collect(
   return text;
 }
 
-export function createAnswerNode({ model, logger }: AgentGraphDeps) {
+export function createAnswerNode({ model, logger, replies }: AgentGraphDeps) {
   return async (
     state: AgentStateType,
     config: LangGraphRunnableConfig,
@@ -56,7 +55,7 @@ export function createAnswerNode({ model, logger }: AgentGraphDeps) {
 
     return {
       messages: [
-        assistantMessage(text || emptyAnswerReply(state.language), {
+        assistantMessage(text || replies.emptyAnswer(state.language), {
           properties: state.candidates.map(({ card }) => card),
           search: {
             filters: state.filters,

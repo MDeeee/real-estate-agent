@@ -161,6 +161,7 @@ The `book` node collects name, Egyptian mobile number, date and an optional view
 | [0004](docs/adr/0004-filter-then-rank-retrieval.md) | Filter then rank retrieval: SQL filters pick the candidates, vectors only order them |
 | [0005](docs/adr/0005-vite-spa-served-by-nest-over-nextjs.md) | Vite SPA served by NestJS, replacing Next.js: one origin, no backend-for-frontend |
 | [0006](docs/adr/0006-one-llm-call-to-understand-a-turn.md) | One LLM call to understand a turn (route and filter extraction merged), fail-fast LLM calls |
+| [0007](docs/adr/0007-i18n-with-nestjs-i18n.md) | i18n with nestjs-i18n catalogs, generated key types and Intl for plurals, lists and dates |
 
 More: [docs/PLAN.md](docs/PLAN.md) for scope and milestones, [AGENTS.md](AGENTS.md) for contributor and coding-agent conventions.
 

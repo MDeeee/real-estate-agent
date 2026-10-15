@@ -21,6 +21,7 @@ function serviceFor(h: Harness, turnTimeoutMs = 90_000) {
       checkpointer: h.checkpointer,
     } as unknown as AgentGraphService,
     { get: () => turnTimeoutMs } as unknown as ConfigService<Env, true>,
+    h.deps.replies,
   );
 }
 
@@ -271,10 +272,7 @@ describe('ChatService turn rollback', () => {
       const timedOut = await drain(slow, randomUUID(), 'apartments');
       expect(timedOut.at(-2)).toMatchObject({ code: 'timeout' });
 
-      expect(lines.map((line) => line['reason'])).toEqual([
-        'error',
-        'timeout',
-      ]);
+      expect(lines.map((line) => line['reason'])).toEqual(['error', 'timeout']);
     });
   });
 
@@ -437,7 +435,6 @@ describe('ChatService turn rollback', () => {
 
     expect(await service.history(thread)).toEqual(before);
   });
-
 });
 
 describe('describeError', () => {

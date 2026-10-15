@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { refusalReply } from '../src/agent/replies.js';
+import { createTestReplies } from '../src/testing/replies.js';
 import {
   type CaseOutcome,
   type Expectation,
@@ -9,6 +9,8 @@ import {
   scoreCase,
   scoreFilters,
 } from './scoring.js';
+
+const replies = createTestReplies();
 
 function observation(overrides: Partial<Observation> = {}): Observation {
   return {
@@ -188,20 +190,20 @@ describe('scoreCase', () => {
     expect(
       scoreCase(
         arabicRefusal,
-        observation({ ...base, reply: refusalReply('ar') }),
+        observation({ ...base, reply: replies.refusal('ar') }),
       ).refusal,
     ).toBe(true);
     expect(
       scoreCase(
         arabicRefusal,
-        observation({ ...base, reply: refusalReply('en') }),
+        observation({ ...base, reply: replies.refusal('en') }),
       ).refusal,
     ).toBe(false);
     // No language stated: either language passes.
     expect(
       scoreCase(
         { intent: 'off_topic', expectRefusal: true },
-        observation({ ...base, reply: refusalReply('en') }),
+        observation({ ...base, reply: replies.refusal('en') }),
       ).refusal,
     ).toBe(true);
   });

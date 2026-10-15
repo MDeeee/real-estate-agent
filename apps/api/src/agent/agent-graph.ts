@@ -10,7 +10,7 @@ import { createAnswerNode } from './nodes/answer.js';
 import { createBookNode } from './nodes/book.js';
 import { createDetailsNode } from './nodes/details.js';
 import { createRetrieveNode } from './nodes/retrieve.js';
-import { refuseNode, smalltalkNode } from './nodes/static-reply.js';
+import { createRefuseNode, createSmalltalkNode } from './nodes/static-reply.js';
 import { trimNode } from './nodes/trim.js';
 import { NODE_FOR_INTENT, createUnderstandNode } from './nodes/understand.js';
 
@@ -30,8 +30,8 @@ export function buildAgentGraph(
     .addNode('answer', createAnswerNode(deps))
     .addNode('details', createDetailsNode(deps))
     .addNode('book', createBookNode(deps))
-    .addNode('smalltalk', smalltalkNode)
-    .addNode('refuse', refuseNode)
+    .addNode('smalltalk', createSmalltalkNode(deps))
+    .addNode('refuse', createRefuseNode(deps))
     .addNode(TRIM_NODE, trimNode)
     .addEdge(START, 'understand')
     .addConditionalEdges(

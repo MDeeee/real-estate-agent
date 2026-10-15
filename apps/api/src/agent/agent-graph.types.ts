@@ -2,6 +2,7 @@ import type { BookingsService } from '../bookings/bookings.service.js';
 import type { AgentModel } from '../llm/agent-model.js';
 import type { PropertyFilters } from '../properties/property-filters.schema.js';
 import type { ChatCard } from './chat-card.js';
+import type { AgentReplies } from './replies.js';
 
 export interface RetrievedListing {
   card: ChatCard;
@@ -36,4 +37,5 @@ export interface AgentGraphDeps {
   /** IANA name of the business time zone (`APP_TIMEZONE`): "today" and viewing hours are in it. */
   timeZone: string;
   logger: GraphLogger;
+  replies: AgentReplies;
 }

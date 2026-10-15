@@ -10,6 +10,7 @@ import { type AgentGraph, buildAgentGraph } from './agent-graph.js';
 import type { ListingsPort } from './agent-graph.types.js';
 import { toChatCard } from './chat-card.js';
 import { CheckpointerService } from './checkpointer.service.js';
+import { AgentReplies } from './replies.js';
 import { ttlCached } from './ttl-cache.js';
 
 const MAX_FACET_VALUES = 100;
@@ -30,6 +31,7 @@ export class AgentGraphService {
     @Inject(PropertySearchService) search: PropertySearchService,
     @Inject(BookingsService) bookings: BookingsService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
+    @Inject(AgentReplies) replies: AgentReplies,
   ) {
     const listings: ListingsPort = {
       facets: ttlCached(FACETS_TTL_MS, async () => {
@@ -62,6 +64,7 @@ export class AgentGraphService {
         now: () => new Date(),
         timeZone: config.get('APP_TIMEZONE', { infer: true }),
         logger: this.logger,
+        replies,
       },
       checkpointer.saver,
     );

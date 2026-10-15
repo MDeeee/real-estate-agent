@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { ConsoleLogger, Global, Module } from '@nestjs/common';
+import { HttpAdapterHost, ModuleRef } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { HumanMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
@@ -9,6 +10,7 @@ import { AgentGraphService } from '../src/agent/agent-graph.service.js';
 import { RECURSION_LIMIT } from '../src/agent/agent-graph.js';
 import type { NodeEvent } from '../src/agent/chat-events.js';
 import { CheckpointerService } from '../src/agent/checkpointer.service.js';
+import { AgentReplies } from '../src/agent/replies.js';
 import { USAGE_KEY } from '../src/agent/nodes/node-support.js';
 import { AppModule } from '../src/app.module.js';
 import { BookingsService } from '../src/bookings/bookings.service.js';
@@ -48,11 +50,16 @@ const TURN_TIMEOUT_MS = 180_000;
 /**
  * Under `tsx`, an ESM `import` of a CommonJS package can yield a second copy
  * of it, so the `Reflector` class that `@nestjs/throttler` (CommonJS) asks for
- * is not the one the container registered, and the app cannot be built. This
+ * is not the one the container registered, and the app cannot be built (the same holds for
+ * `HttpAdapterHost` and `ModuleRef`, which `nestjs-i18n` asks for). This
  * global module registers the CommonJS copy too. Plain `node` (the built app)
  * and Vitest load a single copy and do not need it.
  */
-const { Reflector: CommonJsReflector } = createRequire(import.meta.url)(
+const {
+  Reflector: CommonJsReflector,
+  HttpAdapterHost: CommonJsHttpAdapterHost,
+  ModuleRef: CommonJsModuleRef,
+} = createRequire(import.meta.url)(
   '@nestjs/core',
 ) as typeof import('@nestjs/core');
 
@@ -60,8 +67,14 @@ const { Reflector: CommonJsReflector } = createRequire(import.meta.url)(
 @Module({
   providers: [
     { provide: CommonJsReflector, useValue: new CommonJsReflector() },
+    // `nestjs-i18n` (CommonJS) asks for its own copies of `HttpAdapterHost` and `ModuleRef`.
+    {
+      provide: CommonJsHttpAdapterHost,
+      useExisting: HttpAdapterHost,
+    },
+    { provide: CommonJsModuleRef, useExisting: ModuleRef },
   ],
-  exports: [CommonJsReflector],
+  exports: [CommonJsReflector, CommonJsHttpAdapterHost, CommonJsModuleRef],
 })
 class ReflectorCompatModule {}
 
@@ -119,6 +132,7 @@ async function playCase(
   graph: Graph,
   paced: PacedAgentModel,
   evalCase: EvalCase,
+  refusalReplies: readonly string[],
 ) {
   // A fresh thread per case: the in-memory checkpointer never sees the dev DB.
   const threadId = `eval-${evalCase.id}-${crypto.randomUUID()}`;
@@ -137,11 +151,15 @@ async function playCase(
     );
   }
   if (!outcome) throw new Error(`Case ${evalCase.id} has no turns.`);
-  return observeLastTurn(outcome, {
-    latencyMs,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-  });
+  return observeLastTurn(
+    outcome,
+    {
+      latencyMs,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    },
+    refusalReplies,
+  );
 }
 
 async function runCase(
@@ -149,6 +167,7 @@ async function runCase(
   paced: PacedAgentModel,
   evalCase: EvalCase,
   settings: EvalSettings,
+  refusalReplies: readonly string[],
 ): Promise<CaseResult> {
   const base = {
     id: evalCase.id,
@@ -161,7 +180,7 @@ async function runCase(
     const observed = await retryOnRateLimit(
       () => {
         attempts += 1;
-        return playCase(graph, paced, evalCase);
+        return playCase(graph, paced, evalCase, refusalReplies);
       },
       {
         waitMs: settings.retryWaitMs,
@@ -256,13 +275,18 @@ async function main(): Promise<number> {
       strict: false,
     });
 
+    const replies = moduleRef.get(AgentReplies, { strict: false });
+    const refusalReplies = [replies.refusal('en'), replies.refusal('ar')];
+
     console.log(
       `Running ${cases.length} case(s) against ${llm.provider} / ${llm.model} (delay ${settings.delayMs} ms between LLM calls)`,
     );
     const results: CaseResult[] = [];
     for (const [index, evalCase] of cases.entries()) {
       console.log(`[${index + 1}/${cases.length}] ${evalCase.id}`);
-      results.push(await runCase(graph, paced, evalCase, settings));
+      results.push(
+        await runCase(graph, paced, evalCase, settings, refusalReplies),
+      );
     }
 
     const metrics = aggregate(results);

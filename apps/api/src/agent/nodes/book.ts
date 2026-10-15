@@ -14,14 +14,7 @@ import {
   normalisePhone,
 } from '../booking-validation.js';
 import { SLUG_LIKE, resolveCandidate } from '../listing-reference.js';
-import {
-  type BookingField,
-  type BookingProblem,
-  bookingCancelledReply,
-  bookingConfirmation,
-  bookingQuestion,
-  listingUnavailableReply,
-} from '../replies.js';
+import type { BookingField, BookingProblem } from '../replies.js';
 import {
   assistantMessage,
   callOptions,
@@ -51,7 +44,7 @@ function threadIdOf(config: LangGraphRunnableConfig): string {
 }
 
 export function createBookNode(deps: AgentGraphDeps) {
-  const { model, listings, bookings, now, timeZone } = deps;
+  const { model, listings, bookings, now, timeZone, replies } = deps;
 
   return async (
     state: AgentStateType,
@@ -115,7 +108,9 @@ export function createBookNode(deps: AgentGraphDeps) {
         title = detail.card.title;
       } else {
         return {
-          messages: [assistantMessage(listingUnavailableReply(state.language))],
+          messages: [
+            assistantMessage(replies.listingUnavailable(state.language)),
+          ],
           bookingDraft: { ...draft, propertySlug: undefined },
           citedSlugs: [],
         };
@@ -196,7 +191,7 @@ export function createBookNode(deps: AgentGraphDeps) {
       return {
         messages: [
           assistantMessage(
-            bookingQuestion(
+            replies.bookingQuestion(
               state.language,
               title,
               missing,
@@ -220,7 +215,11 @@ export function createBookNode(deps: AgentGraphDeps) {
         preferredTime: draft.preferredTime ?? null,
       });
       recordBooking(config, booking, created);
-      const text = bookingConfirmation(state.language, booking, created);
+      const text = replies.bookingConfirmation(
+        state.language,
+        booking,
+        created,
+      );
       emit(config, { type: 'booking', booking, text });
       return {
         messages: [assistantMessage(text, { booking })],
@@ -231,14 +230,18 @@ export function createBookNode(deps: AgentGraphDeps) {
     } catch (error) {
       if (error instanceof BookingCancelledError) {
         return {
-          messages: [assistantMessage(bookingCancelledReply(state.language))],
+          messages: [
+            assistantMessage(replies.bookingCancelled(state.language)),
+          ],
           bookingDraft: { ...draft, preferredDate: undefined },
           citedSlugs: [],
         };
       }
       if (!(error instanceof PropertyUnavailableError)) throw error;
       return {
-        messages: [assistantMessage(listingUnavailableReply(state.language))],
+        messages: [
+          assistantMessage(replies.listingUnavailable(state.language)),
+        ],
         bookingDraft: { ...draft, propertySlug: undefined },
         citedSlugs: [],
       };

@@ -15,6 +15,7 @@ Real-estate AI agent for the Egyptian market (Arabic and English). An admin uplo
 | Path | Purpose |
 | --- | --- |
 | `apps/api/` | NestJS backend: ingestion, search, agent graph, bookings, admin endpoints; serves `apps/web/dist` at `/` |
+| `apps/api/src/i18n/` | String catalogs `en/agent.json` and `ar/agent.json` (nestjs-i18n, [ADR 0007](docs/adr/0007-i18n-with-nestjs-i18n.md)) and the generated key types; edit a catalog, then `pnpm --filter ./apps/api i18n:types`. Agent replies go through `AgentReplies` (`agent/replies.ts`) with an explicit `lang` |
 | `apps/web/` | Vite + React frontend: landing page (chat + filter search) and `/admin`. `src/app` (router, layouts), `src/features/{search,chat,admin}`, `src/shared` (HTTP client, UI, helpers) |
 | `contracts/` | Fixtures replayed by both the api and web tests (citation grammar) |
 | `samples/` | Synthetic property `.md` files used for development, demos and evals |

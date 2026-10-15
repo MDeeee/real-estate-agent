@@ -304,7 +304,7 @@ describe('agent graph', () => {
       });
       expect(fourth.state.bookingDraft).toEqual({});
       expect(fourth.text).toContain('00000001');
-      expect(fourth.text).toContain('2026-10-19 at 17:00');
+      expect(fourth.text).toContain('Monday, 19 October 2026 at 17:00');
       const bookingEvent = fourth.events.find((e) => e.type === 'booking');
       expect(bookingEvent).toBeDefined();
       // The event carries the very confirmation the turn stores, so the web
@@ -321,7 +321,7 @@ describe('agent graph', () => {
       expect(h.createBooking).toHaveBeenCalledWith(
         expect.objectContaining({ preferredTime: '09:30' }),
       );
-      expect(text).toContain('2026-10-19 at 09:30');
+      expect(text).toContain('Monday, 19 October 2026 at 09:30');
     });
 
     it('accepts "any time" and stores no time', async () => {
@@ -339,7 +339,7 @@ describe('agent graph', () => {
           preferredTime: null,
         }),
       );
-      expect(text).toContain('2026-10-19 (any time)');
+      expect(text).toContain('Monday, 19 October 2026 (any time)');
     });
 
     it('keeps asking for the time: a reply without one does not book', async () => {

@@ -1,9 +1,11 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
 import type { Candidate } from '../src/agent/agent-state.js';
-import { refusalReply } from '../src/agent/replies.js';
+import { createTestReplies } from '../src/testing/replies.js';
 import { type TurnOutcome, observeLastTurn } from './observe.js';
 
+const replies = createTestReplies();
+const refusals = [replies.refusal('en'), replies.refusal('ar')];
 const totals = { latencyMs: 9000, inputTokens: 300, outputTokens: 40 };
 
 function candidate(slug: string): Candidate {
@@ -30,6 +32,7 @@ describe('observeLastTurn', () => {
     const observed = observeLastTurn(
       outcome({ rawAnswer: 'Try [a-one] or [ghost-villa].' }),
       totals,
+      refusals,
     );
     expect(observed.filters).toEqual({ city: 'Sheikh Zayed', listing: 'SALE' });
     expect(observed.retrievedSlugs).toEqual(['a-one', 'b-two']);
@@ -47,6 +50,7 @@ describe('observeLastTurn', () => {
         rawAnswer: 'It has a garden [b-two].',
       }),
       totals,
+      refusals,
     );
     expect(observed.filters).toBeNull();
     expect(observed.retrievedSlugs).toBeNull();
@@ -61,6 +65,7 @@ describe('observeLastTurn', () => {
         rawAnswer: 'Compare with [a-one].',
       }),
       totals,
+      refusals,
     );
     // a-one is among the earlier candidates but not the card shown this turn.
     expect(observed.groundingSlugs).toEqual(['b-two']);
@@ -71,6 +76,7 @@ describe('observeLastTurn', () => {
     const observed = observeLastTurn(
       outcome({ state: { ...outcome().state, intent: 'details' } }),
       totals,
+      refusals,
     );
     expect(observed.focusSlug).toBeNull();
     expect(observed.groundingSlugs).toEqual([]);
@@ -80,6 +86,7 @@ describe('observeLastTurn', () => {
     const observed = observeLastTurn(
       outcome({ state: { ...outcome().state, intent: 'book' } }),
       totals,
+      refusals,
     );
     expect(observed.filters).toBeNull();
     expect(observed.retrievedSlugs).toBeNull();
@@ -97,6 +104,7 @@ describe('observeLastTurn', () => {
         },
       }),
       totals,
+      refusals,
     );
     expect(observed.focusSlug).toBe('a-one');
     expect(observed.groundingSlugs).toEqual([]);
@@ -109,10 +117,11 @@ describe('observeLastTurn', () => {
         state: {
           ...outcome().state,
           intent: 'off_topic',
-          messages: [new AIMessage(refusalReply('en'))],
+          messages: [new AIMessage(replies.refusal('en'))],
         },
       }),
       totals,
+      refusals,
     );
     expect(observed.refused).toBe(true);
     expect(observed.conversationLatencyMs).toBe(9000);

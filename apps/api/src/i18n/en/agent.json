@@ -1,0 +1,44 @@
+{
+  "smalltalk": "Hello! I can help you find a property in our listings (tell me the area, type, budget and bedrooms), answer questions about a listing, or book a viewing for you.",
+  "refusal": "Sorry, I can only help with real estate: finding properties in our listings, answering questions about them and booking viewings. What kind of property are you looking for?",
+  "providerBusy": "The AI provider is busy right now. Please try again in a minute.",
+  "providerUnavailable": "The AI assistant is not available right now.",
+  "emptyAnswer": "Sorry, I could not put an answer together. Please try rephrasing your request.",
+  "unknownListing": "Which listing do you mean? Search first, then refer to a result by its position (\"the second one\") or its title.",
+  "listingUnavailable": "That listing is no longer available. Would you like me to search again?",
+  "bookingCancelled": "That slot was cancelled by our team — please choose another date.",
+  "days": {
+    "one": "{count} day",
+    "other": "{count} days"
+  },
+  "fields": {
+    "property": "which listing you would like to view",
+    "name": "your full name",
+    "phone": "your mobile number (e.g. 01001234567)",
+    "preferredDate": "your preferred viewing date (within the next {days})",
+    "preferredTime": "the time of day that suits you, between {opens} and {closes} (e.g. 18:00), or say \"any time\""
+  },
+  "problems": {
+    "invalid_phone": "That does not look like an Egyptian mobile number (for example 01001234567 or +201001234567).",
+    "invalid_name": "Please give your name as a few letters, up to 80 characters.",
+    "invalid_date": "I could not read that date.",
+    "date_not_future": "The viewing date has to be after today.",
+    "date_too_far": "Viewings can be booked up to {days} ahead.",
+    "invalid_time": "I could not read that time.",
+    "vague_time": "I need an exact time rather than a part of the day.",
+    "time_outside_hours": "Viewings take place between {opens} and {closes}."
+  },
+  "booking": {
+    "lastThing": "One last thing: please tell me {field}.",
+    "lastThingFor": "One last thing for \"{title}\": please tell me {field}.",
+    "needed": "To book a viewing I still need {needed}.",
+    "neededFor": "To book a viewing of \"{title}\", I still need {needed}.",
+    "choices": "Listings from your latest search: {list}.",
+    "choiceSeparator": "; ",
+    "whenAt": "{date} at {time}",
+    "whenAnyTime": "{date} (any time)",
+    "statusCreated": "Your viewing is confirmed",
+    "statusExisting": "This viewing was already booked and is confirmed",
+    "confirmation": "{status}: \"{title}\" on {when} for {name}. Booking reference: {reference}. We will call you on {phone} if anything changes."
+  }
+}
