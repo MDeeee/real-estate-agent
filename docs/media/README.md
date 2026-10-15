@@ -11,3 +11,4 @@ Capture with the sample data seeded (`pnpm seed`) and a real LLM configured. Kee
 | `search-compare.png` | The landing page on desktop: the chat on one side and the regular filter search on the other, both showing results for a similar request. |
 | `admin-upload.png` | The admin dashboard after uploading several `.md` files: statuses `INDEXED`, one `FAILED` with its exact validation error, and a replace-or-skip conflict prompt if possible. |
 | `admin-bookings.png` | The admin bookings list with at least one active booking made through the chat and one cancelled (muted) booking. Use invented names and a fake phone number. |
+| `chat-booking.png` | Booking a viewing by chat, ending with the Viewing confirmed card. |

@@ -6,17 +6,27 @@ An admin uploads listings as markdown files: each file's frontmatter becomes a s
 
 ## Demo
 
-Screenshots and a short demo GIF are coming.
-
-<!--
-Media added by the owner (see docs/media/README.md for what each file shows):
-
-![Chat demo](docs/media/chat-demo.gif)
 ![Arabic chat](docs/media/chat-arabic.png)
+
+*The agent answers in the visitor's language (Egyptian Arabic, right-to-left) with property cards.*
+
 ![Chat next to the filter search](docs/media/search-compare.png)
+
+*The chat beside the regular filter search, both showing results for a similar request.*
+
+![Chat booking](docs/media/chat-booking.png)
+
+*Booking a viewing by chat, ending with the Viewing confirmed card.*
+
 ![Admin upload](docs/media/admin-upload.png)
+
+*Admin dashboard: markdown listings uploaded and indexed, with validation errors shown.*
+
 ![Admin bookings](docs/media/admin-bookings.png)
--->
+
+*Admin bookings list: active and cancelled bookings made through the chat.*
+
+<!-- Demo GIF to be added: ![Chat demo](docs/media/chat-demo.gif) -->
 
 ## Features
 
