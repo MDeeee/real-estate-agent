@@ -14,7 +14,7 @@ export function HomePage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           Find a property in Egypt
         </h1>
-        <p className="mt-2 max-w-2xl text-muted">
+        <p className="mt-2 text-muted">
           Ask the AI assistant in Arabic or English, or filter the listings
           yourself. Both search the same data, so you can compare them.
         </p>
