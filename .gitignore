@@ -15,3 +15,6 @@ Thumbs.db
 *.log
 .vscode/
 .idea/
+
+# Raw demo videos stay local
+docs/media/*.mp4

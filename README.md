@@ -6,6 +6,10 @@ An admin uploads listings as markdown files: each file's frontmatter becomes a s
 
 ## Demo
 
+![Chat demo: search, details of the second result, a cheaper refinement and a booking](docs/media/chat-demo.gif)
+
+*A full conversation in English: search, details of the second result, a cheaper refinement and a booking.*
+
 ![Arabic chat](docs/media/chat-arabic.png)
 
 *The agent answers in the visitor's language (Egyptian Arabic, right-to-left) with property cards.*
@@ -25,8 +29,6 @@ An admin uploads listings as markdown files: each file's frontmatter becomes a s
 ![Admin bookings](docs/media/admin-bookings.png)
 
 *Admin bookings list: active and cancelled bookings made through the chat.*
-
-<!-- Demo GIF to be added: ![Chat demo](docs/media/chat-demo.gif) -->
 
 ## Features
 
