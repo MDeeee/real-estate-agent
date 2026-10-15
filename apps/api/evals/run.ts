@@ -1,8 +1,6 @@
-import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { ConsoleLogger, Global, Module } from '@nestjs/common';
-import { HttpAdapterHost, ModuleRef } from '@nestjs/core';
+import { ConsoleLogger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { HumanMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
@@ -46,37 +44,6 @@ const CASES_PATH = resolve(import.meta.dirname, 'cases.json');
 const BASELINE_PATH = resolve(import.meta.dirname, 'baseline.json');
 const RESULTS_PATH = resolve(import.meta.dirname, 'results/latest.json');
 const TURN_TIMEOUT_MS = 180_000;
-
-/**
- * Under `tsx`, an ESM `import` of a CommonJS package can yield a second copy
- * of it, so the `Reflector` class that `@nestjs/throttler` (CommonJS) asks for
- * is not the one the container registered, and the app cannot be built (the same holds for
- * `HttpAdapterHost` and `ModuleRef`, which `nestjs-i18n` asks for). This
- * global module registers the CommonJS copy too. Plain `node` (the built app)
- * and Vitest load a single copy and do not need it.
- */
-const {
-  Reflector: CommonJsReflector,
-  HttpAdapterHost: CommonJsHttpAdapterHost,
-  ModuleRef: CommonJsModuleRef,
-} = createRequire(import.meta.url)(
-  '@nestjs/core',
-) as typeof import('@nestjs/core');
-
-@Global()
-@Module({
-  providers: [
-    { provide: CommonJsReflector, useValue: new CommonJsReflector() },
-    // `nestjs-i18n` (CommonJS) asks for its own copies of `HttpAdapterHost` and `ModuleRef`.
-    {
-      provide: CommonJsHttpAdapterHost,
-      useExisting: HttpAdapterHost,
-    },
-    { provide: CommonJsModuleRef, useExisting: ModuleRef },
-  ],
-  exports: [CommonJsReflector, CommonJsHttpAdapterHost, CommonJsModuleRef],
-})
-class ReflectorCompatModule {}
 
 function loadDotEnv(): void {
   for (const file of ['.env', '../../.env']) {
@@ -250,7 +217,7 @@ async function main(): Promise<number> {
   // lives in RAM (the dev database's langgraph schema stays untouched) and
   // bookings are refused (a case that completes one fails loudly).
   const moduleRef = await Test.createTestingModule({
-    imports: [ReflectorCompatModule, AppModule],
+    imports: [AppModule],
   })
     .setLogger(new ConsoleLogger({ logLevels: ['error', 'warn'] }))
     .overrideProvider(CheckpointerService)
