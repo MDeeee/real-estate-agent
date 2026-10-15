@@ -480,6 +480,7 @@ The project is not deployed; these notes apply if you run it behind a proxy.
 - **Global chat budget.** `CHAT_GLOBAL_LIMIT_PER_MINUTE` counts every chat request regardless of IP, so it bounds LLM spend even if the per-IP limit is bypassed or one NAT hides many visitors. Size it to your provider quota. Throttle counters are kept in memory.
 - **Single API instance.** The "one reply at a time per conversation" lock and the throttle counters live in the API process. Run one API instance, or move both to shared storage (for example Redis) before scaling out; with several instances a visitor could run two turns of the same conversation at once.
 - **Conversation cookie.** The conversation id is a bearer token for the stored history, so the browser never sees it: the API keeps it in the `chat_thread` cookie (`HttpOnly`, `SameSite=Lax`, `Secure` in production, path `/api/chat`, 30 days). A missing or invalid cookie starts a new conversation (issued with the first message), and "New chat" (`POST /api/chat/reset`) rotates it. State-changing requests need the `X-Requested-With: fetch` header, which the web app sends; there is no CORS configuration, so other sites cannot read or call the API from a browser. Serve production over HTTPS so the `Secure` cookie is stored.
+- **Embeddings in production.** Serve the same `bge-m3` model with [Hugging Face Text Embeddings Inference](https://github.com/huggingface/text-embeddings-inference) in a container next to the API: same model and 1024 dimensions, so no migration or re-index. Embedding calls go through one interface (`apps/api/src/ingestion/embeddings.port.ts`), so a hosted API (Gemini, Cohere, OpenAI) is one new adapter plus a re-seed and an eval run.
 
 ## Known limitations
 
@@ -488,7 +489,7 @@ The project is not deployed; these notes apply if you run it behind a proxy.
 - **Duplicates under a new slug.** A listing's identity is its `slug`. Uploading the same property again under a different slug creates a second listing; nothing detects it.
 - **Free-tier LLM latency and availability.** On a free tier a turn usually takes a few seconds (the committed eval averaged 3.5 s per conversation), but it can take up to a minute when the provider is under load, and daily quotas or a busy provider end a turn with a friendly error (rolled back, retry offered).
 - **Arabic ordinal details.** "Tell me more about the second one" is resolved from the model's reference first and the deterministic ordinal parser second. In Arabic the model occasionally returns no reference for a phrasing the parser does not cover (one eval run in four during development); the eval suite covers one Arabic phrasing, not every variant.
-- **Embeddings need a local Ollama.** There is no hosted embedding option; changing the embedding model or dimension needs a migration.
+- **Embeddings need a local Ollama.** There is no hosted embedding option; changing the embedding model or dimension needs a migration. See [Deployment notes](#deployment-notes) for production.
 - **Scope.** No deployment, no accounts beyond the admin token, no booking approval step, and a single API instance (see [Deployment notes](#deployment-notes)).
 
 ## License
