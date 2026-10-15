@@ -133,12 +133,12 @@ export function FilterPanel({
             <option value="">All cities</option>
             {initialCity.unlisted ? (
               <option value={initialCity.unlisted}>
-                {initialCity.unlisted} (0)
+                {initialCity.unlisted}
               </option>
             ) : null}
             {facets.cities.map((city) => (
               <option key={city.value} value={city.value}>
-                {city.value} ({city.count})
+                {city.value}
               </option>
             ))}
           </select>
@@ -154,12 +154,12 @@ export function FilterPanel({
             <option value="">All compounds</option>
             {initialCompound.unlisted ? (
               <option value={initialCompound.unlisted}>
-                {initialCompound.unlisted} (0)
+                {initialCompound.unlisted}
               </option>
             ) : null}
             {facets.compounds.map((compound) => (
               <option key={compound.value} value={compound.value}>
-                {compound.value} ({compound.count})
+                {compound.value}
               </option>
             ))}
           </select>
@@ -174,7 +174,7 @@ export function FilterPanel({
             <option value="">All types</option>
             {facets.types.map((type) => (
               <option key={type.value} value={type.value}>
-                {capitalise(type.value)} ({type.count})
+                {capitalise(type.value)}
               </option>
             ))}
           </select>
